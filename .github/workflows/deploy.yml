@@ -1,0 +1,57 @@
+name: StockOps MSA Production EKS CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ] # 애플리케이션 소스가 main에 반영되면 가동합니다.
+
+env:
+  AWS_REGION: ap-northeast-2
+  EKS_CLUSTER_NAME: seoul-cluster # 🌟 개발자님의 실제 EKS 클러스터 이름
+  ECR_REGISTRY: 247385839803.dkr.ecr.ap-northeast-2.amazonaws.com
+
+jobs:
+  deploy:
+    name: Build, Push and Deploy to Amazon EKS
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Source Code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-aws-ecr-login@v2
+
+    # 🌟 애플리케이션 저장소 루트에 위치한 4개 폴더를 정밀 타격하여 도커라이징합니다.
+    - name: Build, Tag, and Push Images to Amazon ECR
+      run: |
+        docker build -t $ECR_REGISTRY/stockops-api:latest ./stockops-api-server
+        docker push $ECR_REGISTRY/stockops-api:latest
+        
+        docker build -t $ECR_REGISTRY/stockops-ai:latest ./stockops-ai-module
+        docker push $ECR_REGISTRY/stockops-ai:latest
+        
+        docker build -t $ECR_REGISTRY/stockops-admin-web:latest ./stockops-admin-web
+        docker push $ECR_REGISTRY/stockops-admin-web:latest
+        
+        docker build -t $ECR_REGISTRY/stockops-client-web:latest ./stockops-client-web
+        docker push $ECR_REGISTRY/stockops-client-web:latest
+
+    - name: Set up Kubeconfig Context for Amazon EKS
+      run: |
+        aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+    # 테라폼 인프라가 생성해둔 stockops 네임스페이스의 실제 상용 자원들을 동적으로 새로고침합니다.
+    - name: Deploy & Rollout Restart to Amazon EKS Cluster
+      run: |
+        kubectl rollout restart deployment/stockops-api -n stockops
+        kubectl rollout restart deployment/stockops-ai -n stockops
+        kubectl rollout restart deployment/stockops-admin-web -n stockops
+        kubectl rollout restart deployment/stockops-client-web -n stockops
