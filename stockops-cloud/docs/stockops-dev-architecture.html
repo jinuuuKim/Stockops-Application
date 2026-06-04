@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StockOps Dev AWS Architecture</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --ink: #17202a;
+      --muted: #647180;
+      --line: #bdc6cf;
+      --aws: #ffb84d;
+      --app: #2f80ed;
+      --data: #27ae60;
+      --edge: #7f56d9;
+      --warn: #d97706;
+      --card: #ffffff;
+      --shadow: 0 12px 32px rgba(21, 31, 45, 0.11);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    header {
+      padding: 28px 32px 18px;
+      border-bottom: 1px solid #dde3ea;
+      background: #ffffff;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    main {
+      padding: 24px 32px 36px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    button {
+      border: 1px solid #ccd5df;
+      background: #ffffff;
+      color: #243142;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-weight: 650;
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    }
+
+    button:hover,
+    button.active {
+      border-color: #2f80ed;
+      color: #1457a8;
+      background: #eef6ff;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(760px, 1fr) 360px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .canvas {
+      overflow: auto;
+      background: var(--card);
+      border: 1px solid #dce3eb;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    svg {
+      min-width: 1120px;
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid #dce3eb;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      position: sticky;
+      top: 18px;
+    }
+
+    .panel h2 {
+      font-size: 18px;
+      margin: 0 0 12px;
+    }
+
+    .panel h3 {
+      font-size: 14px;
+      margin: 18px 0 8px;
+      color: #2c3b4e;
+    }
+
+    .panel p,
+    .panel li {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .panel ul {
+      padding-left: 18px;
+      margin: 8px 0;
+    }
+
+    .node rect,
+    .node path {
+      stroke: #526173;
+      stroke-width: 1.4;
+      fill: #ffffff;
+      transition: fill 0.2s, stroke 0.2s, filter 0.2s;
+    }
+
+    .node text {
+      font-size: 13px;
+      fill: #1f2937;
+      pointer-events: none;
+    }
+
+    .node .label {
+      font-weight: 700;
+    }
+
+    .node .meta {
+      font-size: 11px;
+      fill: #586779;
+    }
+
+    .zone {
+      fill: #fbfcfe;
+      stroke: #cbd5df;
+      stroke-width: 1.2;
+    }
+
+    .zone-title {
+      font-size: 15px;
+      font-weight: 800;
+      fill: #2d3b4d;
+    }
+
+    .zone-subtitle {
+      font-size: 11px;
+      fill: #6b7786;
+    }
+
+    .aws rect {
+      fill: #fff5e1;
+      stroke: #d48806;
+    }
+
+    .edge rect {
+      fill: #f4f0ff;
+      stroke: #7f56d9;
+    }
+
+    .app rect {
+      fill: #eef6ff;
+      stroke: #2f80ed;
+    }
+
+    .data rect {
+      fill: #edf9f0;
+      stroke: #27ae60;
+    }
+
+    .warn rect {
+      fill: #fff7ed;
+      stroke: #d97706;
+    }
+
+    .line {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 2;
+      marker-end: url(#arrow);
+      transition: stroke 0.2s, stroke-width 0.2s, opacity 0.2s;
+    }
+
+    .line.dashed {
+      stroke-dasharray: 7 6;
+    }
+
+    .line.mqtt {
+      stroke: #2fa67c;
+    }
+
+    .line.deploy {
+      stroke: #8b6f47;
+      stroke-dasharray: 5 5;
+    }
+
+    .dim .node rect,
+    .dim .node path {
+      opacity: 0.3;
+    }
+
+    .dim .line {
+      opacity: 0.14;
+    }
+
+    .node.active rect,
+    .node.active path {
+      fill: #fff1b8;
+      stroke: #b7791f;
+      stroke-width: 2.4;
+      filter: drop-shadow(0 6px 12px rgba(183, 121, 31, 0.25));
+      opacity: 1;
+    }
+
+    .line.active {
+      stroke: #b7791f;
+      stroke-width: 3.4;
+      opacity: 1;
+    }
+
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .swatch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 3px;
+      border: 1px solid #8a97a6;
+      display: inline-block;
+    }
+
+    .resource-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 24px;
+      background: #ffffff;
+      border: 1px solid #dce3eb;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .resource-table th,
+    .resource-table td {
+      border-bottom: 1px solid #e7edf3;
+      padding: 11px 12px;
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    .resource-table th {
+      background: #f2f5f8;
+      color: #334155;
+      width: 210px;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+      color: #1f3552;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 1100px) {
+      header,
+      main {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>StockOps Dev AWS Architecture</h1>
+    <p class="subtitle">
+      Terraform으로 배포된 dev 환경 기준 구조입니다. 버튼을 누르면 관리자 로그인, 센서 메시지, 배포 흐름을 각각 강조합니다.
+    </p>
+  </header>
+
+  <main>
+    <div class="toolbar" aria-label="flow controls">
+      <button data-flow="all" class="active">전체 구조</button>
+      <button data-flow="admin">관리자 웹/API 로그인</button>
+      <button data-flow="sensor">센서 데이터 흐름</button>
+      <button data-flow="deploy">배포 흐름</button>
+      <button data-flow="network">네트워크/보안</button>
+    </div>
+
+    <div class="layout">
+      <section class="canvas" aria-label="architecture diagram">
+        <svg viewBox="0 0 1180 790" role="img" aria-labelledby="diagram-title diagram-desc">
+          <title id="diagram-title">StockOps dev AWS architecture diagram</title>
+          <desc id="diagram-desc">Admin web on CloudFront and S3, API on Elastic Beanstalk, PostgreSQL on RDS, MQTT and Sensimul on ECS Fargate, images in ECR, and secrets in Secrets Manager.</desc>
+
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#98a4b2"></path>
+            </marker>
+          </defs>
+
+          <rect x="25" y="40" width="1130" height="705" rx="16" class="zone"></rect>
+          <text x="48" y="70" class="zone-title">AWS Account 197180823954 / ap-northeast-2</text>
+          <text x="48" y="91" class="zone-subtitle">dev environment managed by Terraform</text>
+
+          <rect x="265" y="118" width="855" height="520" rx="16" class="zone"></rect>
+          <text x="288" y="148" class="zone-title">VPC vpc-01c1a33dd969f95aa</text>
+          <text x="288" y="169" class="zone-subtitle">public/private subnets, security groups, service discovery</text>
+
+          <rect x="295" y="195" width="370" height="395" rx="14" class="zone"></rect>
+          <text x="318" y="225" class="zone-title">Public/App Layer</text>
+          <text x="318" y="246" class="zone-subtitle">Elastic Beanstalk + ECS Fargate services</text>
+
+          <rect x="705" y="195" width="380" height="395" rx="14" class="zone"></rect>
+          <text x="728" y="225" class="zone-title">Data/Internal Layer</text>
+          <text x="728" y="246" class="zone-subtitle">RDS, Secrets, MQTT private DNS</text>
+
+          <g id="user" class="node" data-flows="admin network">
+            <rect x="60" y="145" width="150" height="78" rx="10"></rect>
+            <text x="135" y="176" text-anchor="middle" class="label">Admin User</text>
+            <text x="135" y="197" text-anchor="middle" class="meta">browser</text>
+          </g>
+
+          <g id="cloudfront" class="node edge" data-flows="admin deploy network">
+            <rect x="60" y="292" width="180" height="86" rx="10"></rect>
+            <text x="150" y="324" text-anchor="middle" class="label">CloudFront</text>
+            <text x="150" y="345" text-anchor="middle" class="meta">d6wis2329nbgb.net</text>
+            <text x="150" y="363" text-anchor="middle" class="meta">Admin Web CDN</text>
+          </g>
+
+          <g id="admin-s3" class="node aws" data-flows="admin deploy">
+            <rect x="60" y="438" width="180" height="88" rx="10"></rect>
+            <text x="150" y="470" text-anchor="middle" class="label">S3 Admin Web</text>
+            <text x="150" y="491" text-anchor="middle" class="meta">stockops-dev-admin-web</text>
+            <text x="150" y="509" text-anchor="middle" class="meta">static build files</text>
+          </g>
+
+          <g id="api" class="node app" data-flows="admin sensor deploy network">
+            <rect x="360" y="278" width="220" height="104" rx="10"></rect>
+            <text x="470" y="314" text-anchor="middle" class="label">Elastic Beanstalk API</text>
+            <text x="470" y="337" text-anchor="middle" class="meta">stockops-dev-api</text>
+            <text x="470" y="356" text-anchor="middle" class="meta">AL2023 Docker</text>
+            <text x="470" y="374" text-anchor="middle" class="meta">/api/v1, /actuator/health</text>
+          </g>
+
+          <g id="ecr-api" class="node aws" data-flows="deploy">
+            <rect x="345" y="455" width="250" height="82" rx="10"></rect>
+            <text x="470" y="487" text-anchor="middle" class="label">ECR API Image</text>
+            <text x="470" y="509" text-anchor="middle" class="meta">stockops-dev-api:dev</text>
+          </g>
+
+          <g id="ecs" class="node app" data-flows="sensor deploy network">
+            <rect x="775" y="278" width="225" height="78" rx="10"></rect>
+            <text x="887" y="310" text-anchor="middle" class="label">ECS Cluster</text>
+            <text x="887" y="331" text-anchor="middle" class="meta">stockops-dev-cluster</text>
+          </g>
+
+          <g id="mqtt" class="node data" data-flows="sensor network">
+            <rect x="740" y="412" width="210" height="86" rx="10"></rect>
+            <text x="845" y="443" text-anchor="middle" class="label">MQTT Broker</text>
+            <text x="845" y="465" text-anchor="middle" class="meta">Mosquitto on Fargate</text>
+            <text x="845" y="483" text-anchor="middle" class="meta">mqtt.stockops-dev.local</text>
+          </g>
+
+          <g id="sensimul" class="node app" data-flows="sensor deploy network">
+            <rect x="965" y="412" width="135" height="86" rx="10"></rect>
+            <text x="1032" y="444" text-anchor="middle" class="label">Sensimul</text>
+            <text x="1032" y="466" text-anchor="middle" class="meta">Fargate task</text>
+            <text x="1032" y="484" text-anchor="middle" class="meta">sensor publisher</text>
+          </g>
+
+          <g id="ecr-sensimul" class="node aws" data-flows="deploy">
+            <rect x="785" y="535" width="260" height="74" rx="10"></rect>
+            <text x="915" y="566" text-anchor="middle" class="label">ECR Sensimul Image</text>
+            <text x="915" y="587" text-anchor="middle" class="meta">stockops-dev-sensimul:dev</text>
+          </g>
+
+          <g id="rds" class="node data" data-flows="admin sensor network">
+            <rect x="735" y="78" width="275" height="88" rx="10"></rect>
+            <text x="872" y="110" text-anchor="middle" class="label">RDS PostgreSQL</text>
+            <text x="872" y="132" text-anchor="middle" class="meta">stockops-dev-postgres</text>
+            <text x="872" y="150" text-anchor="middle" class="meta">private app data</text>
+          </g>
+
+          <g id="secrets" class="node warn" data-flows="admin sensor deploy network">
+            <rect x="395" y="92" width="210" height="74" rx="10"></rect>
+            <text x="500" y="122" text-anchor="middle" class="label">Secrets Manager</text>
+            <text x="500" y="144" text-anchor="middle" class="meta">stockops-dev/app</text>
+          </g>
+
+          <g id="developer" class="node" data-flows="deploy">
+            <rect x="60" y="610" width="180" height="74" rx="10"></rect>
+            <text x="150" y="640" text-anchor="middle" class="label">Developer / CI</text>
+            <text x="150" y="662" text-anchor="middle" class="meta">local or GitLab CI</text>
+          </g>
+
+          <g id="terraform" class="node aws" data-flows="deploy network">
+            <rect x="345" y="610" width="250" height="74" rx="10"></rect>
+            <text x="470" y="640" text-anchor="middle" class="label">Terraform Dev</text>
+            <text x="470" y="662" text-anchor="middle" class="meta">terraform/environments/dev</text>
+          </g>
+
+          <g id="client" class="node warn" data-flows="network">
+            <rect x="60" y="78" width="150" height="46" rx="10"></rect>
+            <text x="135" y="106" text-anchor="middle" class="label">Client Web</text>
+            <text x="135" y="121" text-anchor="middle" class="meta">future app</text>
+          </g>
+
+          <path id="l-user-cf" class="line" data-flows="admin network" d="M135 223 L135 292"></path>
+          <path id="l-cf-s3" class="line" data-flows="admin deploy" d="M150 378 L150 438"></path>
+          <path id="l-cf-api" class="line" data-flows="admin network" d="M240 333 C280 333, 310 333, 360 333"></path>
+          <path id="l-api-rds" class="line" data-flows="admin sensor network" d="M580 302 C650 250, 735 175, 810 166"></path>
+          <path id="l-api-secrets" class="line dashed" data-flows="admin sensor deploy network" d="M494 278 L502 166"></path>
+          <path id="l-api-mqtt" class="line mqtt" data-flows="sensor network" d="M580 356 C640 405, 690 448, 740 455"></path>
+          <path id="l-sensimul-mqtt" class="line mqtt" data-flows="sensor network" d="M965 455 L950 455"></path>
+          <path id="l-mqtt-api" class="line mqtt dashed" data-flows="sensor network" d="M740 480 C665 495, 605 430, 545 382"></path>
+          <path id="l-ecs-mqtt" class="line" data-flows="sensor deploy network" d="M872 356 L852 412"></path>
+          <path id="l-ecs-sensimul" class="line" data-flows="sensor deploy network" d="M920 356 L1005 412"></path>
+          <path id="l-ecr-api" class="line deploy" data-flows="deploy" d="M470 455 L470 382"></path>
+          <path id="l-ecr-sensimul" class="line deploy" data-flows="deploy" d="M915 535 L1000 498"></path>
+          <path id="l-dev-tf" class="line deploy" data-flows="deploy network" d="M240 648 L345 648"></path>
+          <path id="l-dev-ecr-api" class="line deploy" data-flows="deploy" d="M240 628 C300 565, 360 520, 345 500"></path>
+          <path id="l-dev-s3" class="line deploy" data-flows="deploy" d="M150 610 L150 526"></path>
+          <path id="l-tf-api" class="line deploy" data-flows="deploy network" d="M470 610 L470 537"></path>
+          <path id="l-tf-ecs" class="line deploy" data-flows="deploy network" d="M595 648 C720 650, 825 620, 887 356"></path>
+          <path id="l-tf-rds" class="line deploy" data-flows="deploy network" d="M595 620 C680 505, 735 275, 850 166"></path>
+        </svg>
+
+        <div class="legend">
+          <span class="swatch"><span class="dot" style="background:#eef6ff"></span>Application runtime</span>
+          <span class="swatch"><span class="dot" style="background:#fff5e1"></span>AWS managed/resource</span>
+          <span class="swatch"><span class="dot" style="background:#edf9f0"></span>Data or messaging</span>
+          <span class="swatch"><span class="dot" style="background:#f4f0ff"></span>Edge delivery</span>
+          <span class="swatch"><span class="dot" style="background:#fff7ed"></span>Config/future</span>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2 id="flow-title">전체 구조</h2>
+        <p id="flow-description">
+          관리자 웹은 CloudFront와 S3에서 정적 파일로 제공되고, API는 Elastic Beanstalk의 Amazon Linux 2023 Docker 환경에서 동작합니다. RDS PostgreSQL은 애플리케이션 데이터를 저장하고, MQTT와 Sensimul은 ECS Fargate에서 dev 테스트용으로 실행됩니다.
+        </p>
+
+        <h3>현재 접속 정보</h3>
+        <ul>
+          <li>Admin Web: <code>https://d6wis2329nbgb.cloudfront.net</code></li>
+          <li>API: <code>http://stockops-dev-api.eba-hhuewrsm.ap-northeast-2.elasticbeanstalk.com</code></li>
+          <li>Login: <code>admin@stockops.com / admin123</code></li>
+        </ul>
+
+        <h3>운영 전 보완 포인트</h3>
+        <ul>
+          <li>API HTTPS 연결 또는 CloudFront/API Gateway 앞단 구성이 필요합니다.</li>
+          <li>RDS와 애플리케이션 계층은 private subnet 중심으로 정리하는 것이 좋습니다.</li>
+          <li>GitLab CI에서 image push, Terraform apply, S3 sync를 분리하면 로컬 수동 작업을 줄일 수 있습니다.</li>
+        </ul>
+      </aside>
+    </div>
+
+    <table class="resource-table">
+      <tbody>
+        <tr>
+          <th>AWS 계정/리전</th>
+          <td><code>197180823954 / ap-northeast-2</code></td>
+        </tr>
+        <tr>
+          <th>VPC</th>
+          <td><code>vpc-01c1a33dd969f95aa</code></td>
+        </tr>
+        <tr>
+          <th>Elastic Beanstalk</th>
+          <td><code>stockops-dev-api</code>, CNAME <code>stockops-dev-api.eba-hhuewrsm.ap-northeast-2.elasticbeanstalk.com</code></td>
+        </tr>
+        <tr>
+          <th>Admin S3/CloudFront</th>
+          <td><code>stockops-dev-admin-web-f5804a51</code>, domain <code>d6wis2329nbgb.cloudfront.net</code></td>
+        </tr>
+        <tr>
+          <th>ECR</th>
+          <td><code>stockops-dev-api</code>, <code>stockops-dev-sensimul</code></td>
+        </tr>
+        <tr>
+          <th>RDS</th>
+          <td><code>stockops-dev-postgres.c5eooikim0gi.ap-northeast-2.rds.amazonaws.com:5432</code></td>
+        </tr>
+        <tr>
+          <th>ECS/MQTT</th>
+          <td><code>stockops-dev-cluster</code>, broker <code>tcp://mqtt.stockops-dev.local:1883</code></td>
+        </tr>
+        <tr>
+          <th>Secrets</th>
+          <td><code>stockops-dev/app</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <script>
+    const flowText = {
+      all: {
+        title: "전체 구조",
+        description: "관리자 웹은 CloudFront와 S3에서 정적 파일로 제공되고, API는 Elastic Beanstalk의 Amazon Linux 2023 Docker 환경에서 동작합니다. RDS PostgreSQL은 애플리케이션 데이터를 저장하고, MQTT와 Sensimul은 ECS Fargate에서 dev 테스트용으로 실행됩니다."
+      },
+      admin: {
+        title: "관리자 웹/API 로그인",
+        description: "사용자는 CloudFront로 관리자 웹을 열고, 브라우저는 Elastic Beanstalk API의 /api/v1/auth/login으로 로그인 요청을 보냅니다. API는 Secrets Manager 설정과 RDS 사용자 데이터를 사용해 JWT를 발급합니다."
+      },
+      sensor: {
+        title: "센서 데이터 흐름",
+        description: "Sensimul Fargate task가 센서 데이터를 MQTT broker로 publish하고, API는 MQTT broker와 통신해 창고 환경 상태와 제어 흐름을 처리하는 구조입니다. MQTT broker는 Service Discovery private DNS 이름으로 참조됩니다."
+      },
+      deploy: {
+        title: "배포 흐름",
+        description: "Terraform이 VPC, EB, ECS, RDS, S3, CloudFront, ECR을 생성합니다. API와 Sensimul Docker image는 ECR에 :dev 태그로 push하고, 관리자 웹은 Vite build 결과를 S3에 sync한 뒤 CloudFront로 제공합니다."
+      },
+      network: {
+        title: "네트워크/보안",
+        description: "dev 환경은 빠른 테스트를 위해 단순화되어 있습니다. 현재 API는 EB CNAME으로 노출되고, Admin CloudFront origin만 CORS에 허용됩니다. 운영 전에는 HTTPS, private app subnet, NAT 또는 VPC endpoint, 보안그룹 최소화를 보완하는 편이 좋습니다."
+      }
+    };
+
+    const buttons = document.querySelectorAll("button[data-flow]");
+    const nodes = document.querySelectorAll(".node");
+    const lines = document.querySelectorAll(".line");
+    const svg = document.querySelector("svg");
+    const title = document.getElementById("flow-title");
+    const description = document.getElementById("flow-description");
+
+    function setFlow(flow) {
+      const showAll = flow === "all";
+      svg.classList.toggle("dim", !showAll);
+      buttons.forEach((button) => button.classList.toggle("active", button.dataset.flow === flow));
+
+      [...nodes, ...lines].forEach((element) => {
+        const flows = (element.dataset.flows || "").split(" ");
+        element.classList.toggle("active", !showAll && flows.includes(flow));
+      });
+
+      title.textContent = flowText[flow].title;
+      description.textContent = flowText[flow].description;
+    }
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => setFlow(button.dataset.flow));
+    });
+  </script>
+</body>
+</html>

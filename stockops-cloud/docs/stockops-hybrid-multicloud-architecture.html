@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StockOps Hybrid Multi-Cloud Architecture</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --ink: #17202a;
+      --muted: #607080;
+      --line: #c9d3dd;
+      --card: #ffffff;
+      --aws: #ffb84d;
+      --azure: #3b82f6;
+      --gcp: #34a853;
+      --onprem: #7c3aed;
+      --app: #0f766e;
+      --warn: #d97706;
+      --danger: #dc2626;
+      --shadow: 0 14px 36px rgba(26, 35, 48, 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    }
+
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid #dfe6ee;
+      padding: 26px 30px 18px;
+    }
+
+    .header-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 980px;
+    }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 22px 30px 38px;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tab {
+      appearance: none;
+      border: 1px solid #cbd6e2;
+      background: #ffffff;
+      color: #243142;
+      border-radius: 7px;
+      padding: 9px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    }
+
+    .tab:hover,
+    .tab.active {
+      border-color: #0f766e;
+      color: #0f5f59;
+      background: #ecfdf8;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(720px, 1fr) 390px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .canvas,
+    .side,
+    .section {
+      background: var(--card);
+      border: 1px solid #dce4ec;
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .canvas {
+      padding: 18px;
+      overflow: auto;
+    }
+
+    .side {
+      position: sticky;
+      top: 16px;
+      padding: 18px;
+    }
+
+    .side h2,
+    .section h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .side h3 {
+      margin: 18px 0 8px;
+      font-size: 14px;
+      color: #2c3b4d;
+    }
+
+    p,
+    li {
+      color: var(--muted);
+      line-height: 1.58;
+      font-size: 14px;
+    }
+
+    ul {
+      padding-left: 18px;
+      margin: 8px 0 0;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 12px 0 4px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border-radius: 999px;
+      border: 1px solid #d0dae5;
+      background: #f8fafc;
+      padding: 5px 9px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .below {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .section {
+      padding: 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e3e9f0;
+      padding: 10px 9px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #2b3a4c;
+      background: #f8fafc;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    td {
+      color: #526171;
+      line-height: 1.5;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f1f5f9;
+      border: 1px solid #dbe4ee;
+      border-radius: 5px;
+      padding: 1px 5px;
+      color: #223042;
+      white-space: nowrap;
+    }
+
+    svg {
+      min-width: 1120px;
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .zone {
+      fill: #fbfcfe;
+      stroke: #cad5df;
+      stroke-width: 1.4;
+    }
+
+    .zone.aws-primary {
+      fill: #fff8ea;
+      stroke: #e6a43d;
+    }
+
+    .zone.aws-standby {
+      fill: #fffdf7;
+      stroke: #e8bb67;
+      stroke-dasharray: 6 4;
+    }
+
+    .zone.other {
+      fill: #f5fbff;
+      stroke: #91baf2;
+    }
+
+    .zone.onprem {
+      fill: #faf7ff;
+      stroke: #b99af0;
+    }
+
+    .zone-title {
+      font-size: 15px;
+      font-weight: 850;
+      fill: #263445;
+    }
+
+    .zone-subtitle {
+      font-size: 11px;
+      fill: #657484;
+    }
+
+    .node rect,
+    .node path {
+      fill: #ffffff;
+      stroke: #536273;
+      stroke-width: 1.3;
+      filter: drop-shadow(0 5px 8px rgba(20, 30, 44, 0.08));
+    }
+
+    .node text {
+      fill: #1f2937;
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .node .label {
+      font-weight: 850;
+      font-size: 13px;
+    }
+
+    .node .meta {
+      fill: #667789;
+      font-size: 10.5px;
+    }
+
+    .aws-node rect { stroke: #d99120; fill: #fff6df; }
+    .app-node rect { stroke: #0f766e; fill: #edfffb; }
+    .data-node rect { stroke: #15803d; fill: #effdf3; }
+    .azure-node rect { stroke: #2563eb; fill: #eff6ff; }
+    .gcp-node rect { stroke: #16a34a; fill: #f0fdf4; }
+    .onprem-node rect { stroke: #7c3aed; fill: #f7f2ff; }
+    .cicd-node rect { stroke: #b45309; fill: #fff7ed; }
+
+    .edge {
+      stroke: #7b8b9c;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+
+    .edge.dashed {
+      stroke-dasharray: 7 5;
+    }
+
+    .edge.failover {
+      stroke: var(--danger);
+      stroke-width: 2.3;
+      stroke-dasharray: 8 5;
+    }
+
+    .edge.backup {
+      stroke: #2563eb;
+      stroke-width: 2.2;
+      stroke-dasharray: 6 4;
+    }
+
+    .edge.cicd {
+      stroke: #b45309;
+      stroke-width: 2.1;
+    }
+
+    .edge-label {
+      font-size: 10.5px;
+      fill: #475569;
+      font-weight: 750;
+    }
+
+    [data-layer],
+    [data-owner] {
+      transition: opacity 0.18s ease, filter 0.18s ease;
+    }
+
+    .dimmed {
+      opacity: 0.18;
+      filter: grayscale(0.65);
+    }
+
+    @media (max-width: 1060px) {
+      main,
+      header {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+
+      .grid,
+      .below {
+        grid-template-columns: 1fr;
+      }
+
+      .side {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>StockOps Hybrid Multi-Cloud Architecture</h1>
+      <p class="subtitle">
+        AWS Seoul Primary, AWS Tokyo Warm Standby, Azure/GCP Backup & Restore, On-Premise Sensimul edge, GitLab CI/CD를 한 화면에서 설명하기 위한 회의/발표용 설계 보드.
+      </p>
+      <div class="badge-row" aria-label="architecture tags">
+        <span class="badge">Primary: AWS Seoul</span>
+        <span class="badge">Standby: AWS Tokyo</span>
+        <span class="badge">Backup: Azure / GCP</span>
+        <span class="badge">Edge: On-Premise</span>
+        <span class="badge">CI/CD: GitLab</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="tabs" aria-label="diagram filters">
+      <button class="tab active" data-filter="all">전체</button>
+      <button class="tab" data-filter="app" data-filter-type="layer">애플리케이션</button>
+      <button class="tab" data-filter="dr" data-filter-type="layer">DR / 백업</button>
+      <button class="tab" data-filter="cicd" data-filter-type="layer">CI/CD</button>
+      <button class="tab" data-filter="leader" data-filter-type="owner">팀장</button>
+      <button class="tab" data-filter="member-a" data-filter-type="owner">팀원 A</button>
+      <button class="tab" data-filter="member-b" data-filter-type="owner">팀원 B</button>
+      <button class="tab" data-filter="member-c" data-filter-type="owner">팀원 C</button>
+    </div>
+
+    <div class="grid">
+      <section class="canvas" aria-label="architecture diagram">
+        <svg viewBox="0 0 1240 860" role="img" aria-labelledby="diagram-title diagram-desc">
+          <title id="diagram-title">StockOps hybrid multi-cloud architecture</title>
+          <desc id="diagram-desc">Primary AWS region, standby AWS region, Azure and GCP backup services, on-premise sensor edge, and GitLab CI/CD pipelines.</desc>
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L8,3 z" fill="#7b8b9c"></path>
+            </marker>
+          </defs>
+
+          <g data-layer="app dr" data-owner="leader member-a">
+            <rect class="zone aws-primary" x="30" y="120" width="590" height="500" rx="10"></rect>
+            <text class="zone-title" x="52" y="148">AWS Seoul - Primary</text>
+            <text class="zone-subtitle" x="52" y="166">실제 서비스 운영, API / Web / AI / AWS IoT Core / DB</text>
+          </g>
+
+          <g data-layer="dr" data-owner="member-a">
+            <rect class="zone aws-standby" x="650" y="120" width="550" height="300" rx="10"></rect>
+            <text class="zone-title" x="672" y="148">AWS Tokyo - Warm Standby</text>
+            <text class="zone-subtitle" x="672" y="166">리전 장애 대응, 동일 이미지 기반 standby</text>
+          </g>
+
+          <g data-layer="dr team" data-owner="member-b">
+            <rect class="zone other" x="650" y="450" width="550" height="180" rx="10"></rect>
+            <text class="zone-title" x="672" y="478">Azure / GCP - Backup & Restore</text>
+            <text class="zone-subtitle" x="672" y="496">AWS 전체 장애 대비 백업본, 아티팩트, 보조 AI</text>
+          </g>
+
+          <g data-layer="app dr" data-owner="leader">
+            <rect class="zone onprem" x="30" y="650" width="390" height="150" rx="10"></rect>
+            <text class="zone-title" x="52" y="678">On-Premise Server</text>
+            <text class="zone-subtitle" x="52" y="696">현장 센서 시뮬레이터, MQTT publish, 장애 시뮬레이션</text>
+          </g>
+
+          <g data-layer="cicd team" data-owner="leader member-a member-b member-c">
+            <rect class="zone" x="450" y="650" width="750" height="150" rx="10"></rect>
+            <text class="zone-title" x="472" y="678">GitLab CI/CD + Team Workstreams</text>
+            <text class="zone-subtitle" x="472" y="696">서비스별 build/push/deploy, Terraform validate/plan/apply</text>
+          </g>
+
+          <g class="node aws-node" data-layer="app" data-owner="leader">
+            <rect x="74" y="195" width="130" height="58" rx="8"></rect>
+            <text class="label" x="139" y="218" text-anchor="middle">CloudFront</text>
+            <text class="meta" x="139" y="237" text-anchor="middle">Admin Web</text>
+          </g>
+
+          <g class="node aws-node" data-layer="app" data-owner="leader member-a">
+            <rect x="245" y="195" width="130" height="58" rx="8"></rect>
+            <text class="label" x="310" y="218" text-anchor="middle">ALB / EB</text>
+            <text class="meta" x="310" y="237" text-anchor="middle">API Entry</text>
+          </g>
+
+          <g class="node app-node" data-layer="app" data-owner="leader">
+            <rect x="245" y="295" width="140" height="66" rx="8"></rect>
+            <text class="label" x="315" y="318" text-anchor="middle">Spring API</text>
+            <text class="meta" x="315" y="337" text-anchor="middle">stockops-api-server</text>
+            <text class="meta" x="315" y="352" text-anchor="middle">port 8080</text>
+          </g>
+
+          <g class="node app-node" data-layer="app" data-owner="leader">
+            <rect x="74" y="405" width="140" height="66" rx="8"></rect>
+            <text class="label" x="144" y="428" text-anchor="middle">AI Module</text>
+            <text class="meta" x="144" y="447" text-anchor="middle">FastAPI + Prophet</text>
+            <text class="meta" x="144" y="462" text-anchor="middle">port 8000</text>
+          </g>
+
+          <g class="node app-node" data-layer="app" data-owner="leader">
+            <rect x="245" y="405" width="140" height="66" rx="8"></rect>
+            <text class="label" x="315" y="428" text-anchor="middle">AWS IoT Core</text>
+            <text class="meta" x="315" y="447" text-anchor="middle">Managed MQTT</text>
+            <text class="meta" x="315" y="462" text-anchor="middle">TLS / certificates</text>
+          </g>
+
+          <g class="node data-node" data-layer="app dr" data-owner="leader member-b">
+            <rect x="430" y="405" width="140" height="66" rx="8"></rect>
+            <text class="label" x="500" y="428" text-anchor="middle">RDS PostgreSQL</text>
+            <text class="meta" x="500" y="447" text-anchor="middle">business data DB</text>
+            <text class="meta" x="500" y="462" text-anchor="middle">private subnet</text>
+          </g>
+
+          <g class="node aws-node" data-layer="app team" data-owner="member-c">
+            <rect x="430" y="275" width="140" height="60" rx="8"></rect>
+            <text class="label" x="500" y="298" text-anchor="middle">CloudWatch</text>
+            <text class="meta" x="500" y="317" text-anchor="middle">Logs / Metrics</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="430" y="345" width="140" height="48" rx="8"></rect>
+            <text class="label" x="500" y="366" text-anchor="middle">Alarms</text>
+            <text class="meta" x="500" y="382" text-anchor="middle">health / error</text>
+          </g>
+
+          <g class="node aws-node" data-layer="dr" data-owner="member-a">
+            <rect x="705" y="195" width="138" height="62" rx="8"></rect>
+            <text class="label" x="774" y="219" text-anchor="middle">Standby API</text>
+            <text class="meta" x="774" y="238" text-anchor="middle">desired 0 or 1</text>
+          </g>
+
+          <g class="node app-node" data-layer="dr" data-owner="member-a leader">
+            <rect x="875" y="195" width="138" height="62" rx="8"></rect>
+            <text class="label" x="944" y="219" text-anchor="middle">Standby AI</text>
+            <text class="meta" x="944" y="238" text-anchor="middle">same image</text>
+          </g>
+
+          <g class="node data-node" data-layer="dr" data-owner="member-a member-b">
+            <rect x="705" y="310" width="138" height="62" rx="8"></rect>
+            <text class="label" x="774" y="334" text-anchor="middle">DB Restore</text>
+            <text class="meta" x="774" y="353" text-anchor="middle">snapshot / dump</text>
+          </g>
+
+          <g class="node aws-node" data-layer="dr" data-owner="member-a">
+            <rect x="875" y="310" width="138" height="62" rx="8"></rect>
+            <text class="label" x="944" y="334" text-anchor="middle">Route 53</text>
+            <text class="meta" x="944" y="353" text-anchor="middle">Failover policy</text>
+          </g>
+
+          <g class="node azure-node" data-layer="dr team" data-owner="member-b">
+            <rect x="705" y="525" width="138" height="62" rx="8"></rect>
+            <text class="label" x="774" y="549" text-anchor="middle">Azure Blob</text>
+            <text class="meta" x="774" y="568" text-anchor="middle">DB dump / artifacts</text>
+          </g>
+
+          <g class="node gcp-node" data-layer="dr team" data-owner="member-b">
+            <rect x="875" y="525" width="138" height="62" rx="8"></rect>
+            <text class="label" x="944" y="549" text-anchor="middle">GCP Storage</text>
+            <text class="meta" x="944" y="568" text-anchor="middle">backup copy</text>
+          </g>
+
+          <g class="node gcp-node" data-layer="app dr" data-owner="leader member-b">
+            <rect x="1040" y="525" width="118" height="62" rx="8"></rect>
+            <text class="label" x="1099" y="549" text-anchor="middle">Cloud Run</text>
+            <text class="meta" x="1099" y="568" text-anchor="middle">AI standby</text>
+          </g>
+
+          <g class="node onprem-node" data-layer="app dr" data-owner="leader">
+            <rect x="74" y="720" width="148" height="58" rx="8"></rect>
+            <text class="label" x="148" y="744" text-anchor="middle">Sensimul</text>
+            <text class="meta" x="148" y="763" text-anchor="middle">on-prem sensor source</text>
+          </g>
+
+          <g class="node onprem-node" data-layer="dr" data-owner="leader">
+            <rect x="250" y="720" width="130" height="58" rx="8"></rect>
+            <text class="label" x="315" y="744" text-anchor="middle">Local Buffer</text>
+            <text class="meta" x="315" y="763" text-anchor="middle">replay scenario</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="650" y="635" width="140" height="54" rx="8"></rect>
+            <text class="label" x="720" y="658" text-anchor="middle">S3 Log Archive</text>
+            <text class="meta" x="720" y="676" text-anchor="middle">export / sync</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="820" y="635" width="140" height="54" rx="8"></rect>
+            <text class="label" x="890" y="658" text-anchor="middle">GCP/Azure Logs</text>
+            <text class="meta" x="890" y="676" text-anchor="middle">backup copy</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="990" y="635" width="150" height="54" rx="8"></rect>
+            <text class="label" x="1065" y="658" text-anchor="middle">Looker / Log Analytics</text>
+            <text class="meta" x="1065" y="676" text-anchor="middle">visualization</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="650" y="560" width="140" height="54" rx="8"></rect>
+            <text class="label" x="720" y="583" text-anchor="middle">Logs Insights</text>
+            <text class="meta" x="720" y="601" text-anchor="middle">queries</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="820" y="560" width="140" height="54" rx="8"></rect>
+            <text class="label" x="890" y="583" text-anchor="middle">Runbook</text>
+            <text class="meta" x="890" y="601" text-anchor="middle">detect / classify</text>
+          </g>
+
+          <g class="node aws-node" data-layer="team" data-owner="member-c">
+            <rect x="990" y="560" width="150" height="54" rx="8"></rect>
+            <text class="label" x="1065" y="583" text-anchor="middle">Secrets / Budget</text>
+            <text class="meta" x="1065" y="601" text-anchor="middle">IAM / cost guard</text>
+          </g>
+
+          <g class="node cicd-node" data-layer="cicd team" data-owner="leader">
+            <rect x="490" y="720" width="140" height="58" rx="8"></rect>
+            <text class="label" x="560" y="744" text-anchor="middle">Leader</text>
+            <text class="meta" x="560" y="763" text-anchor="middle">App / CI owner</text>
+          </g>
+
+          <g class="node cicd-node" data-layer="cicd team" data-owner="member-a">
+            <rect x="660" y="720" width="140" height="58" rx="8"></rect>
+            <text class="label" x="730" y="744" text-anchor="middle">Member A</text>
+            <text class="meta" x="730" y="763" text-anchor="middle">Multi-region</text>
+          </g>
+
+          <g class="node cicd-node" data-layer="cicd team" data-owner="member-b">
+            <rect x="830" y="720" width="140" height="58" rx="8"></rect>
+            <text class="label" x="900" y="744" text-anchor="middle">Member B</text>
+            <text class="meta" x="900" y="763" text-anchor="middle">Backup / DR</text>
+          </g>
+
+          <g class="node cicd-node" data-layer="cicd team" data-owner="member-c">
+            <rect x="1000" y="720" width="140" height="58" rx="8"></rect>
+            <text class="label" x="1070" y="744" text-anchor="middle">Member C</text>
+            <text class="meta" x="1070" y="763" text-anchor="middle">Logs / Cost</text>
+          </g>
+
+          <g data-layer="app" data-owner="leader">
+            <path class="edge" d="M204 224 H245"></path>
+            <path class="edge" d="M310 253 V295"></path>
+            <path class="edge" d="M385 320 H430"></path>
+            <path class="edge" d="M385 342 C440 365 500 378 500 405"></path>
+            <path class="edge" d="M245 328 C190 340 144 365 144 405"></path>
+            <path class="edge dashed" d="M315 405 V361"></path>
+            <path class="edge dashed" d="M222 745 C275 690 315 555 315 471"></path>
+            <text class="edge-label" x="156" y="382">AI forecast call</text>
+            <text class="edge-label" x="326" y="388">optional subscribe</text>
+            <text class="edge-label" x="278" y="620">MQTT publish</text>
+            <text class="edge-label" x="438" y="386">business data</text>
+          </g>
+
+          <g data-layer="dr" data-owner="member-a member-b">
+            <path class="edge failover" d="M944 310 C944 280 870 255 843 226"></path>
+            <path class="edge failover" d="M375 224 C520 80 790 85 944 195"></path>
+            <text class="edge-label" x="610" y="86">DNS failover</text>
+            <path class="edge dashed" d="M774 257 V310"></path>
+            <path class="edge dashed" d="M875 226 H843"></path>
+            <path class="edge backup" d="M500 471 C560 565 635 556 705 556"></path>
+            <path class="edge backup" d="M570 438 C660 500 760 510 875 556"></path>
+          </g>
+
+          <g data-layer="dr" data-owner="leader">
+            <path class="edge backup" d="M214 750 H250"></path>
+          </g>
+
+          <g data-layer="team" data-owner="member-c">
+            <path class="edge dashed" d="M500 335 V345"></path>
+            <path class="edge dashed" d="M570 300 C620 390 680 485 720 560"></path>
+            <path class="edge dashed" d="M720 614 V635"></path>
+            <path class="edge dashed" d="M790 662 H820"></path>
+            <path class="edge dashed" d="M960 662 H990"></path>
+            <path class="edge dashed" d="M570 322 C680 430 790 495 890 560"></path>
+            <path class="edge dashed" d="M570 345 C725 450 935 488 1065 560"></path>
+          </g>
+
+          <g data-layer="cicd" data-owner="leader member-a member-b member-c">
+            <path class="edge cicd" d="M560 720 C535 640 500 555 500 471"></path>
+            <path class="edge cicd" d="M560 720 C495 630 315 590 315 471"></path>
+            <path class="edge cicd" d="M560 720 C430 645 144 625 144 580"></path>
+            <path class="edge cicd" d="M730 720 C760 620 780 485 774 372"></path>
+            <path class="edge cicd" d="M900 720 V587"></path>
+            <path class="edge cicd" d="M1070 720 C1020 650 780 620 500 361"></path>
+          </g>
+        </svg>
+      </section>
+
+      <aside class="side">
+        <h2>설계 요약</h2>
+        <p>
+          실제 구현은 AWS Seoul을 중심으로 안정화하고, AWS Tokyo는 Warm Standby로 리전 장애에 대비한다. Azure/GCP는 백업본과 배포 아티팩트를 보관해 AWS 전체 장애 시 복구 가능한 구조를 만든다.
+        </p>
+
+        <h3>핵심 판단</h3>
+        <ul>
+          <li>전체 Active-Active는 최종 확장안으로 발표한다.</li>
+          <li>재고/발주 쓰기 데이터는 Primary-Standby로 제한한다.</li>
+          <li>Sensimul은 온프레미스 현장 센서 시뮬레이터이며, 센서값은 <code>Sensimul -> AWS IoT Core -> API</code> 흐름이다.</li>
+          <li>센서 스트림은 기본적으로 DB 저장 대상이 아니며, RDS는 재고/출고/발주 등 업무 데이터를 저장한다.</li>
+          <li>8개 센서가 초당 1회씩 publish하면 월 약 2,073만 메시지이며, 단순 publish 기준 약 $20 전후로 추정한다.</li>
+          <li>AI와 정적 웹은 멀티클라우드 standby 또는 active-active 후보로 둔다.</li>
+          <li>Terraform은 인프라, GitLab CI/CD는 앱 릴리즈를 담당한다.</li>
+        </ul>
+
+        <h3>회의 결정 포인트</h3>
+        <ul>
+          <li>Tokyo standby를 실제 구축할지, 시뮬레이션으로 둘지</li>
+          <li>Azure/GCP 백업을 둘 다 구현할지</li>
+          <li>MQTT Broker를 AWS IoT Core로 대체할지, Mosquitto fallback을 남길지</li>
+          <li>AI Module을 GCP Cloud Run에도 둘지</li>
+          <li>deploy job을 자동화할지 수동 승인으로 둘지</li>
+        </ul>
+      </aside>
+    </div>
+
+    <div class="below">
+      <section class="section">
+        <h2>팀원별 작업 구조</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>담당</th>
+              <th>핵심 구조</th>
+              <th>산출물</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>팀장</td>
+              <td>API/Admin/AI 배포 표준, 온프레미스 Sensimul 연결 기준, GitLab CI/CD</td>
+              <td>배포 계약서, CI 템플릿, 센서 연동 데모</td>
+            </tr>
+            <tr>
+              <td>팀원 A</td>
+              <td>AWS Seoul/Tokyo VPC, ALB health check, Route 53 failover</td>
+              <td>멀티리전 Terraform, Failover Runbook</td>
+            </tr>
+            <tr>
+              <td>팀원 B</td>
+              <td>RDS backup, Azure Blob, GCP Storage, restore script</td>
+              <td>백업 정책, 복구 절차, DR 테스트 로그</td>
+            </tr>
+            <tr>
+              <td>팀원 C</td>
+              <td>CloudWatch, Logs Insights, S3 log archive, GCP/Azure log backup, dashboard, Budget</td>
+              <td>멀티클라우드 로그 시각화, 장애 분석 Runbook, 비용/알람 기준</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>서비스 배포 계약서</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>서비스</th>
+              <th>포트</th>
+              <th>Health Check</th>
+              <th>노출</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>stockops-api-server</code></td>
+              <td>8080</td>
+              <td><code>/actuator/health</code></td>
+              <td>Public ALB / CloudFront</td>
+            </tr>
+            <tr>
+              <td><code>stockops-admin-web</code></td>
+              <td>static</td>
+              <td><code>/</code></td>
+              <td>CloudFront</td>
+            </tr>
+            <tr>
+              <td><code>stockops-ai-module</code></td>
+              <td>8000</td>
+              <td><code>/health</code></td>
+              <td>Private 권장</td>
+            </tr>
+            <tr>
+              <td><code>Sensimul</code></td>
+              <td>8080 optional</td>
+              <td>optional</td>
+              <td>On-premise</td>
+            </tr>
+            <tr>
+              <td><code>AWS IoT Core</code></td>
+              <td>8883/443</td>
+              <td>managed</td>
+              <td>Managed MQTT Broker</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="section">
+        <h2>IoT Core 비용 가정</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>값</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>센서 수</td>
+              <td>8개</td>
+              <td>Sensimul 현장 센서 시뮬레이션</td>
+            </tr>
+            <tr>
+              <td>송신 주기</td>
+              <td>1초당 1회</td>
+              <td>센서별 publish</td>
+            </tr>
+            <tr>
+              <td>월 메시지</td>
+              <td>20,736,000건</td>
+              <td>30일 연속 실행 기준</td>
+            </tr>
+            <tr>
+              <td>예상 비용</td>
+              <td>약 $20-$40</td>
+              <td>publish만 계산 시 낮고, subscribe/rule 사용 시 증가</td>
+            </tr>
+            <tr>
+              <td>절감 전략</td>
+              <td>batch / 5초 주기 / 테스트 시간 제한</td>
+              <td>CloudWatch payload logging 기본 비활성화</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const buttons = document.querySelectorAll(".tab");
+    const diagramItems = document.querySelectorAll("svg [data-layer], svg [data-owner]");
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        buttons.forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+
+        const filter = button.dataset.filter;
+        const filterType = button.dataset.filterType || "all";
+
+        diagramItems.forEach((item) => {
+          if (filter === "all") {
+            item.classList.remove("dimmed");
+            return;
+          }
+
+          const values = (item.dataset[filterType] || "").split(/\s+/);
+          item.classList.toggle("dimmed", !values.includes(filter));
+        });
+      });
+    });
+  </script>
+</body>
+</html>

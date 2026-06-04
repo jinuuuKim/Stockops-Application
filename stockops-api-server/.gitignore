@@ -1,0 +1,19 @@
+target/
+node_modules/
+dist/
+*.class
+.env
+.env.local
+application-local.yml
+application-pi.yml
+*.log
+.settings/
+.classpath
+.project
+.factorypath
+target/
+
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml

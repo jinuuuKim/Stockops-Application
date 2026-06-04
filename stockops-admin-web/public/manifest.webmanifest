@@ -1,0 +1,18 @@
+{
+  "name": "StockOps",
+  "short_name": "StockOps",
+  "description": "Scoped inventory operations with analytics, AI reorder recommendations, and read-only offline access.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "lang": "ko-KR",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

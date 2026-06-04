@@ -1,0 +1,185 @@
+name: Deploy API to ECS
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/deploy-api-ecs.yml"
+      - "terraform/environments/dev/ecs-api.tf"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+      image_tag:
+        description: "Override image tag (default: SHA)"
+        required: false
+        type: string
+      api_ref:
+        description: "stockops-api-server git ref to deploy"
+        required: false
+        default: "main"
+        type: string
+
+env:
+  AWS_REGION: ap-northeast-2
+  API_REPOSITORY: solcloud_team/stockops-api-server
+  API_REF: ${{ github.event.inputs.api_ref || 'main' }}
+  ECR_REPOSITORY: stockops-dev-api
+  ECS_CLUSTER: stockops-dev-cluster
+  ECS_SERVICE: stockops-dev-api
+  ECS_TASK_DEFINITION: stockops-dev-api
+  CONTAINER_NAME: api
+  FLYWAY_URL: ""
+  FLYWAY_USER: stockops
+  FLYWAY_PASSWORD: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    name: Build & Push API Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_uri: ${{ steps.push.outputs.image_uri }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout API source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.API_REPOSITORY }}
+          ref: ${{ env.API_REF }}
+          path: stockops-api-server
+          token: ${{ secrets.STOCKOPS_ACTIONS_TOKEN || github.token }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build API Docker image
+        run: |
+          docker build \
+            --build-arg APP_SOURCE_HASH=${{ steps.tag.outputs.tag }} \
+            -t ${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }} \
+            -t ${{ env.ECR_REPOSITORY }}:latest \
+            ./stockops-api-server
+
+      - name: Push to ECR
+        id: push
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }}"
+          docker tag ${{ env.ECR_REPOSITORY }}:${{ steps.tag.outputs.tag }} "$IMAGE_URI"
+          docker push "$IMAGE_URI"
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "Pushed: $IMAGE_URI"
+
+  flyway-migrate:
+    name: Run Flyway Migration
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout API source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.API_REPOSITORY }}
+          ref: ${{ env.API_REF }}
+          path: stockops-api-server
+          token: ${{ secrets.STOCKOPS_ACTIONS_TOKEN || github.token }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get RDS endpoint from Secrets Manager
+        id: secrets
+        run: |
+          DB_SECRET=$(aws secretsmanager get-secret-value \
+            --secret-id stockops-dev/app \
+            --query SecretString --output text)
+          DB_HOST=$(echo "$DB_SECRET" | jq -r '.STOCKOPS_DATASOURCE_HOST // empty')
+          FLYWAY_PASSWORD=$(echo "$DB_SECRET" | jq -r '.STOCKOPS_DATASOURCE_PASSWORD // empty')
+
+          if [[ -z "$DB_HOST" ]]; then
+            DB_HOST=$(aws rds describe-db-instances \
+              --db-instance-identifier stockops-dev-postgres \
+              --query 'DBInstances[0].Endpoint.Address' --output text)
+          fi
+
+          echo "::add-mask::$FLYWAY_PASSWORD"
+          echo "db_host=$DB_HOST" >> "$GITHUB_OUTPUT"
+          echo "FLYWAY_URL=jdbc:postgresql://${DB_HOST}:5432/stockops" >> "$GITHUB_ENV"
+          echo "FLYWAY_USER=stockops" >> "$GITHUB_ENV"
+          echo "FLYWAY_PASSWORD=$FLYWAY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Run Flyway Migration
+        uses: docker://flyway/flyway:10
+        with:
+          args: -locations=filesystem:./stockops-api-server/src/main/resources/db/migration migrate
+
+  deploy-ecs:
+    name: Deploy to ECS Fargate
+    needs: [build-and-push, flyway-migrate]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ env.ECS_TASK_DEFINITION }}" \
+            --query taskDefinition \
+            --output json > task-definition.json
+
+      - name: Fill in new image ID in task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ needs.build-and-push.outputs.image_uri }}
+
+      - name: Deploy Amazon ECS service
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
