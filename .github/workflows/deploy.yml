@@ -25,11 +25,12 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
+    # 🌟 [오타 완벽 해결] 중복 기입되었던 amazon-aws-ecr-login 을 정석 주소인 amazon-ecr-login 으로 교정했습니다.
     - name: Login to Amazon ECR
       id: login-ecr
-      uses: aws-actions/amazon-aws-ecr-login@v2
+      uses: aws-actions/amazon-ecr-login@v2
 
-    # 🌟 애플리케이션 저장소 루트에 위치한 4개 폴더를 정밀 타격하여 도커라이징합니다.
+    # 애플리케이션 저장소 루트에 위치한 4개 폴더를 정밀 타격하여 도커라이징합니다.
     - name: Build, Tag, and Push Images to Amazon ECR
       run: |
         docker build -t $ECR_REGISTRY/stockops-api:latest ./stockops-api-server
