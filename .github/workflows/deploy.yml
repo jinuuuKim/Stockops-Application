@@ -3,6 +3,7 @@ name: StockOps MSA Production EKS CI/CD Pipeline
 on:
   push:
     branches: [ "main" ] # 애플리케이션 소스가 main에 반영되면 가동합니다.
+  workflow_dispatch:
 
 env:
   AWS_REGION: ap-northeast-2
