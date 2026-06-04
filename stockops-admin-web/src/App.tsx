@@ -80,7 +80,7 @@ function routeElement(element: ReactNode) {
  */
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/admin">
       <InstallPrompt />
       <Routes>
         <Route path="/login" element={routeElement(<LoginPage />)} />
