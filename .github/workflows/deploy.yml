@@ -8,12 +8,16 @@ on:
 env:
   AWS_REGION: ap-northeast-2
   EKS_CLUSTER_NAME: seoul-cluster # 🌟 개발자님의 실제 EKS 클러스터 이름
-  ECR_REGISTRY: 247385839803.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_REGISTRY: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
 
 jobs:
   deploy:
     name: Build, Push and Deploy to Amazon EKS
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
     - name: Checkout Source Code
@@ -22,8 +26,7 @@ jobs:
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: arn:aws:iam::448768137813:role/github-actions-ecr-push
         aws-region: ${{ env.AWS_REGION }}
 
     # 🌟 [오타 완벽 해결] 중복 기입되었던 amazon-aws-ecr-login 을 정석 주소인 amazon-ecr-login 으로 교정했습니다.
