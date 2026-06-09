@@ -3,10 +3,15 @@ package com.stockops.controller;
 import com.stockops.dto.CreateUserRequest;
 import com.stockops.dto.UpdateUserRequest;
 import com.stockops.dto.UserDTO;
+import com.stockops.security.ScopedUserDetails;
 import com.stockops.service.UserService;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,8 +20,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * User management API controller.
@@ -46,8 +49,8 @@ public class UserController {
      */
     @GetMapping
     @PreAuthorize("@permissionChecker.hasPermission('USER_READ')")
-    public ResponseEntity<List<UserDTO>> getAllUsers() {
-        return ResponseEntity.ok(userService.getAllUsers());
+    public ResponseEntity<Page<UserDTO>> getAllUsers(@PageableDefault(size = 20) final Pageable pageable) {
+        return ResponseEntity.ok(userService.getAllUsers(pageable));
     }
 
     /**
@@ -84,8 +87,9 @@ public class UserController {
     @PutMapping("/{id}")
     @PreAuthorize("@permissionChecker.hasPermission('USER_UPDATE')")
     public ResponseEntity<UserDTO> updateUser(@PathVariable final Long id,
-                                              @RequestBody final UpdateUserRequest request) {
-        return ResponseEntity.ok(userService.updateUser(id, request));
+                                              @RequestBody final UpdateUserRequest request,
+                                              @AuthenticationPrincipal final ScopedUserDetails currentUser) {
+        return ResponseEntity.ok(userService.updateUser(id, request, currentUser == null ? null : currentUser.getUserId()));
     }
 
     /**
@@ -96,8 +100,9 @@ public class UserController {
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("@permissionChecker.hasPermission('USER_DELETE')")
-    public ResponseEntity<Void> deleteUser(@PathVariable final Long id) {
-        userService.deleteUser(id);
+    public ResponseEntity<Void> deleteUser(@PathVariable final Long id,
+                                           @AuthenticationPrincipal final ScopedUserDetails currentUser) {
+        userService.deleteUser(id, currentUser == null ? null : currentUser.getUserId());
         return ResponseEntity.noContent().build();
     }
 }

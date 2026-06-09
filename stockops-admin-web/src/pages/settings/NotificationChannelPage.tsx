@@ -1,14 +1,13 @@
 /**
- * Notification channel configuration page.
- * Admin can configure which channels (SMS, Email, Webhook with provider selection)
- * are used per alert type per center/warehouse.
+ * Microsoft Teams notification channel configuration page.
+ * Admin can configure Teams webhook delivery per event type per center/warehouse.
  *
  * @author StockOps Team
  * @since 2.0
  */
 
-import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Edit2, Send, CheckCircle, XCircle } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { X, Plus, Trash2, Edit2, Send, CheckCircle, XCircle, Power } from 'lucide-react'
 import { useCenters } from '@/hooks/useCenter'
 import { useWarehousesByCenter } from '@/hooks/useWarehouse'
 import {
@@ -22,47 +21,45 @@ import type {
   NotificationChannelConfig,
   NotificationChannelConfigRequest,
   ChannelEntryRequest,
-  ChannelType,
-  WebhookProviderType,
-  WebhookTestResult,
 } from '@/types/notificationChannel'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { showToast } from '@/lib/toast'
 
-const ALERT_TYPES = [
-  'TEMPERATURE',
-  'HUMIDITY',
-  'AIR_QUALITY',
-  'DOOR',
-  'MOTION',
-  'CO2',
-  'TVOC',
-  'PRESSURE',
+const EVENT_TYPES = [
+  { value: 'TEMPERATURE', label: '온도' },
+  { value: 'HUMIDITY', label: '습도' },
+  { value: 'AIR_QUALITY', label: '공기질' },
+  { value: 'DOOR', label: '문 열림' },
+  { value: 'MOTION', label: '움직임' },
+  { value: 'CO2', label: '이산화탄소' },
+  { value: 'TVOC', label: 'TVOC' },
+  { value: 'PRESSURE', label: '압력' },
 ]
 
-const CHANNEL_TYPES: { value: ChannelType; label: string }[] = [
-  { value: 'SMS', label: 'SMS' },
-  { value: 'EMAIL', label: '이메일' },
-  { value: 'WEBHOOK', label: '웹훅' },
-]
+type TeamsChannelEntryRequest = ChannelEntryRequest & {
+  webhookUrl?: string
+}
 
-const WEBHOOK_PROVIDERS: { value: WebhookProviderType; label: string }[] = [
-  { value: 'SLACK', label: 'Slack' },
-  { value: 'NOTION', label: 'Notion' },
-  { value: 'DISCORD', label: 'Discord' },
-  { value: 'TEAMS', label: 'Microsoft Teams' },
-  { value: 'GENERIC', label: 'Generic' },
-]
+type TeamsFormData = Omit<NotificationChannelConfigRequest, 'channels'> & {
+  channels: TeamsChannelEntryRequest[]
+}
 
-function defaultChannels(): ChannelEntryRequest[] {
+type TestResultState = {
+  status: 'success' | 'failure'
+  message: string
+}
+
+const MASKED_WEBHOOK_FALLBACK = 'https://••••••••••••••••/Teams webhook 저장됨'
+const TEST_SUCCESS_MESSAGE = 'Microsoft Teams 테스트 전송 성공'
+const TEST_FAILURE_MESSAGE = 'Microsoft Teams 테스트 전송 실패'
+
+function defaultChannels(): TeamsChannelEntryRequest[] {
   return [
-    { type: 'SMS', enabled: false, webhookProvider: null },
-    { type: 'EMAIL', enabled: true, webhookProvider: null },
-    { type: 'WEBHOOK', enabled: false, webhookProvider: 'SLACK' },
+    { type: 'WEBHOOK', enabled: true, webhookProvider: 'TEAMS', webhookUrl: '' },
   ]
 }
 
-function emptyForm(): NotificationChannelConfigRequest {
+function emptyForm(): TeamsFormData {
   return {
     centerId: 0,
     warehouseId: null,
@@ -72,17 +69,99 @@ function emptyForm(): NotificationChannelConfigRequest {
   }
 }
 
+function findTeamsChannel(config: NotificationChannelConfig) {
+  return config.channels.find((channel) => channel.type === 'WEBHOOK' && channel.webhookProvider === 'TEAMS')
+}
+
+function maskWebhookUrl(value?: string | null): string {
+  if (!value) return MASKED_WEBHOOK_FALLBACK
+
+  if (value.includes('•')) return value
+
+  try {
+    const url = new URL(value)
+    return `${url.protocol}//${url.hostname}/••••••••••••••••`
+  } catch {
+    return '••••••••••••••••'
+  }
+}
+
+function isValidTeamsWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== 'https:') return false
+    return url.hostname.endsWith('webhook.office.com') || url.hostname.endsWith('logic.azure.com')
+  } catch {
+    return false
+  }
+}
+
+function buildTeamsRequest(formData: TeamsFormData, existingConfig?: NotificationChannelConfig): NotificationChannelConfigRequest {
+  const teamsChannel = formData.channels[0]
+  const trimmedWebhookUrl = teamsChannel.webhookUrl?.trim()
+  const nextTeamsChannel: TeamsChannelEntryRequest = {
+    type: 'WEBHOOK',
+    enabled: teamsChannel.enabled,
+    webhookProvider: 'TEAMS',
+    ...(trimmedWebhookUrl ? { webhookUrl: trimmedWebhookUrl } : {}),
+  }
+  const channels = existingConfig
+    ? existingConfig.channels.map((channel) => (
+        channel.type === 'WEBHOOK' && channel.webhookProvider === 'TEAMS'
+          ? nextTeamsChannel
+          : {
+              type: channel.type,
+              enabled: channel.enabled,
+              webhookProvider: channel.webhookProvider,
+            }
+      ))
+    : [nextTeamsChannel]
+
+  return {
+    centerId: formData.centerId,
+    warehouseId: formData.warehouseId,
+    alertType: formData.alertType,
+    active: formData.active,
+    channels,
+  }
+}
+
+function buildTeamsRequestFromConfig(config: NotificationChannelConfig, active: boolean): NotificationChannelConfigRequest {
+  return {
+    centerId: config.centerId,
+    warehouseId: config.warehouseId,
+    alertType: config.alertType,
+    active,
+    channels: config.channels.map((channel) => ({
+      type: channel.type,
+      enabled: channel.enabled,
+      webhookProvider: channel.webhookProvider,
+    })),
+  }
+}
+
 export function NotificationChannelPage() {
   const [selectedCenterId, setSelectedCenterId] = useState<number | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingConfig, setEditingConfig] = useState<NotificationChannelConfig | null>(null)
-  const [formData, setFormData] = useState<NotificationChannelConfigRequest>(emptyForm())
+  const [formData, setFormData] = useState<TeamsFormData>(emptyForm())
+  const [formError, setFormError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
-  const [testResults, setTestResults] = useState<Record<number, WebhookTestResult | null>>({})
+  const [testingConfigId, setTestingConfigId] = useState<number | null>(null)
+  const [testResults, setTestResults] = useState<Record<number, TestResultState | null>>({})
 
-  const { data: centers, isLoading: centersLoading } = useCenters()
+  const {
+    data: centers,
+    isLoading: centersLoading,
+    isError: centersIsError,
+    refetch: refetchCenters,
+  } = useCenters()
   const { data: warehouses } = useWarehousesByCenter(selectedCenterId)
-  const { data: configs, isLoading: configsLoading } = useNotificationChannelConfigs(selectedCenterId)
+  const {
+    data: configs,
+    isLoading: configsLoading,
+    isError: configsIsError,
+  } = useNotificationChannelConfigs(selectedCenterId)
 
   const createMutation = useCreateNotificationChannelConfig()
   const updateMutation = useUpdateNotificationChannelConfig()
@@ -90,6 +169,10 @@ export function NotificationChannelPage() {
   const testWebhookMutation = useTestWebhook()
 
   const isMutating = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending
+  const teamsConfigs = useMemo(
+    () => (configs ?? []).filter((config) => findTeamsChannel(config)),
+    [configs]
+  )
 
   useEffect(() => {
     if (selectedCenterId && centers && centers.length > 0 && !isModalOpen) {
@@ -100,6 +183,7 @@ export function NotificationChannelPage() {
 
   const openCreateModal = () => {
     setEditingConfig(null)
+    setFormError(null)
     setFormData(emptyForm())
     if (selectedCenterId) {
       setFormData((prev) => ({ ...prev, centerId: selectedCenterId }))
@@ -110,16 +194,21 @@ export function NotificationChannelPage() {
   }
 
   const openEditModal = (config: NotificationChannelConfig) => {
+    const teamsChannel = findTeamsChannel(config)
     setEditingConfig(config)
+    setFormError(null)
     setFormData({
       centerId: config.centerId,
       warehouseId: config.warehouseId,
       alertType: config.alertType,
-      channels: config.channels.map((ch) => ({
-        type: ch.type,
-        enabled: ch.enabled,
-        webhookProvider: ch.webhookProvider,
-      })),
+      channels: [
+        {
+          type: 'WEBHOOK',
+          enabled: teamsChannel?.enabled ?? true,
+          webhookProvider: 'TEAMS',
+          webhookUrl: '',
+        },
+      ],
       active: config.active,
     })
     setIsModalOpen(true)
@@ -129,17 +218,33 @@ export function NotificationChannelPage() {
     setIsModalOpen(false)
     setEditingConfig(null)
     setFormData(emptyForm())
+    setFormError(null)
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const teamsChannel = formData.channels[0]
+    const webhookUrl = teamsChannel.webhookUrl?.trim() ?? ''
+
+    if (!editingConfig && !webhookUrl) {
+      setFormError('Microsoft Teams webhook URL을 입력하세요.')
+      return
+    }
+
+    if (webhookUrl && !isValidTeamsWebhookUrl(webhookUrl)) {
+      setFormError('유효한 Microsoft Teams webhook URL을 입력하세요. HTTPS Teams webhook 주소만 사용할 수 있습니다.')
+      return
+    }
+
+    const request = buildTeamsRequest(formData, editingConfig ?? undefined)
+
     try {
       if (editingConfig) {
-        await updateMutation.mutateAsync({ id: editingConfig.id, data: formData })
-        showToast({ message: '채널 설정이 수정되었습니다.', variant: 'success' })
+        await updateMutation.mutateAsync({ id: editingConfig.id, data: request })
+        showToast({ message: 'Microsoft Teams 채널 설정이 수정되었습니다.', variant: 'success' })
       } else {
-        await createMutation.mutateAsync(formData)
-        showToast({ message: '채널 설정이 생성되었습니다.', variant: 'success' })
+        await createMutation.mutateAsync(request)
+        showToast({ message: 'Microsoft Teams 채널 설정이 생성되었습니다.', variant: 'success' })
       }
       closeModal()
     } catch {
@@ -151,7 +256,7 @@ export function NotificationChannelPage() {
     if (!deleteTarget) return
     try {
       await deleteMutation.mutateAsync(deleteTarget)
-      showToast({ message: '채널 설정이 삭제되었습니다.', variant: 'success' })
+      showToast({ message: 'Microsoft Teams 채널 설정이 삭제되었습니다.', variant: 'success' })
       setDeleteTarget(null)
     } catch {
       // error handled by interceptor
@@ -160,95 +265,105 @@ export function NotificationChannelPage() {
 
   const handleTestWebhook = async (configId: number) => {
     setTestResults((prev) => ({ ...prev, [configId]: null }))
+    setTestingConfigId(configId)
     try {
       const result = await testWebhookMutation.mutateAsync(configId)
-      setTestResults((prev) => ({ ...prev, [configId]: result }))
+      setTestResults((prev) => ({
+        ...prev,
+        [configId]: {
+          status: result.success ? 'success' : 'failure',
+          message: result.success ? TEST_SUCCESS_MESSAGE : TEST_FAILURE_MESSAGE,
+        },
+      }))
       if (result.success) {
-        showToast({ message: '웹훅 테스트 성공!', variant: 'success' })
+        showToast({ message: 'Microsoft Teams 테스트 전송에 성공했습니다.', variant: 'success' })
       } else {
-        showToast({ message: `웹훅 테스트 실패: ${result.message}`, variant: 'error' })
+        showToast({ message: TEST_FAILURE_MESSAGE, variant: 'error' })
       }
     } catch {
       setTestResults((prev) => ({
         ...prev,
-        [configId]: { success: false, message: '요청 실패', providerType: null },
+        [configId]: { status: 'failure', message: TEST_FAILURE_MESSAGE },
       }))
+    } finally {
+      setTestingConfigId(null)
     }
   }
 
-  const toggleChannel = (index: number, enabled: boolean) => {
+  const handleToggleActive = async (config: NotificationChannelConfig) => {
+    const nextActive = !config.active
+    try {
+      await updateMutation.mutateAsync({ id: config.id, data: buildTeamsRequestFromConfig(config, nextActive) })
+      showToast({
+        message: nextActive ? 'Microsoft Teams 채널이 활성화되었습니다.' : 'Microsoft Teams 채널이 비활성화되었습니다.',
+        variant: 'success',
+      })
+    } catch {
+      return
+    }
+  }
+
+  const toggleTeamsChannel = (enabled: boolean) => {
     setFormData((prev) => ({
       ...prev,
-      channels: prev.channels.map((ch, i) =>
-        i === index ? { ...ch, enabled } : ch
-      ),
+      channels: prev.channels.map((channel) => ({ ...channel, enabled })),
     }))
   }
 
-  const updateWebhookProvider = (index: number, provider: string) => {
+  const updateTeamsWebhookUrl = (webhookUrl: string) => {
     setFormData((prev) => ({
       ...prev,
-      channels: prev.channels.map((ch, i) =>
-        i === index ? { ...ch, webhookProvider: provider } : ch
-      ),
+      channels: prev.channels.map((channel) => ({ ...channel, webhookUrl })),
     }))
-  }
-
-  const addChannel = () => {
-    setFormData((prev) => ({
-      ...prev,
-      channels: [...prev.channels, { type: 'WEBHOOK', enabled: false, webhookProvider: 'SLACK' }],
-    }))
-  }
-
-  const removeChannel = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      channels: prev.channels.filter((_, i) => i !== index),
-    }))
-  }
-
-  const getChannelLabel = (type: string) => {
-    return CHANNEL_TYPES.find((ct) => ct.value === type)?.label ?? type
-  }
-
-  const getProviderLabel = (provider: string | null) => {
-    if (!provider) return '-'
-    return WEBHOOK_PROVIDERS.find((wp) => wp.value === provider)?.label ?? provider
+    if (formError) setFormError(null)
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-text-primary">알림 채널 설정</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Microsoft Teams 알림 채널 설정</h1>
         <p className="text-text-secondary mt-1">
-          알림 유형별로 SMS, 이메일, 웹훅 채널을 설정하세요.
+          이벤트 유형별 Microsoft Teams webhook 알림 채널을 설정하세요.
         </p>
       </div>
 
       {/* Center selector */}
       <div className="bg-white rounded-xl border border-neutral-200 p-4">
         <label htmlFor="centerFilter" className="block text-sm font-medium text-neutral-700 mb-2">센터 선택</label>
-        <select
-          id="centerFilter"
-          value={selectedCenterId ?? ''}
-          onChange={(e) => setSelectedCenterId(e.target.value ? Number(e.target.value) : null)}
-          className="w-full max-w-md px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          disabled={centersLoading}
-        >
-          <option value="">센터를 선택하세요</option>
-          {centers?.map((center) => (
-            <option key={center.id} value={center.id}>
-              {center.name}
-            </option>
-          ))}
-        </select>
+        {centersLoading ? (
+          <p className="text-sm text-text-secondary" role="status">센터 목록을 불러오는 중...</p>
+        ) : centersIsError ? (
+          <div className="max-w-md rounded-lg border border-error/30 bg-error/5 p-4 text-sm text-error" role="alert">
+            <p>센터 목록을 불러오지 못했습니다. 다시 시도해 주세요.</p>
+            <button
+              type="button"
+              onClick={() => void refetchCenters()}
+              className="mt-3 inline-flex items-center rounded-lg bg-error px-3 py-2 text-white hover:bg-error/90 transition-colors"
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : (
+          <select
+            id="centerFilter"
+            value={selectedCenterId ?? ''}
+            onChange={(e) => setSelectedCenterId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full max-w-md px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          >
+            <option value="">센터를 선택하세요</option>
+            {centers?.map((center) => (
+              <option key={center.id} value={center.id}>
+                {center.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Config list */}
       <div className="bg-white rounded-xl border border-neutral-200 p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text-primary">채널 설정 목록</h2>
+          <h2 className="text-lg font-semibold text-text-primary">Teams 채널 설정 목록</h2>
           <button
             type="button"
             onClick={openCreateModal}
@@ -256,98 +371,120 @@ export function NotificationChannelPage() {
             disabled={!selectedCenterId}
           >
             <Plus className="w-4 h-4" />
-            새 설정
+            새 Teams 설정
           </button>
         </div>
 
         {configsLoading ? (
-          <p className="text-text-secondary">설정을 불러오는 중...</p>
+          <p className="text-text-secondary" role="status">Microsoft Teams 채널 설정을 불러오는 중...</p>
+        ) : configsIsError ? (
+          <div className="rounded-lg border border-error/30 bg-error/5 p-4 text-sm text-error" role="alert">
+            Microsoft Teams 채널 설정을 불러오지 못했습니다. 잠시 후 다시 시도하세요.
+          </div>
         ) : !selectedCenterId ? (
-          <p className="text-text-secondary">센터를 선택하여 설정을 확인하세요.</p>
-        ) : configs && configs.length > 0 ? (
+          <p className="text-text-secondary">센터를 선택하면 Microsoft Teams 채널 설정을 확인할 수 있습니다.</p>
+        ) : teamsConfigs.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-neutral-200">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">알림 유형</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">이벤트 유형</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">창고</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">채널</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">Teams webhook</th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">상태</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-text-secondary">테스트 결과</th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-text-secondary">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {configs.map((config) => (
-                  <tr key={config.id} className="border-b border-neutral-100">
-                    <td className="py-3 px-4 text-text-primary">{config.alertType}</td>
-                    <td className="py-3 px-4 text-text-secondary">
-                      {config.warehouseId ? `창고 ${config.warehouseId}` : '전체 (센터)'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex flex-wrap gap-1">
-                        {config.channels.filter((ch) => ch.enabled).map((ch) => (
-                          <span
-                            key={`${ch.type}-${ch.webhookProvider ?? 'none'}`}
-                            className="px-2 py-0.5 text-xs bg-primary-50 text-primary-700 rounded"
-                          >
-                            {getChannelLabel(ch.type)}
-                            {ch.type === 'WEBHOOK' && ch.webhookProvider && ` (${getProviderLabel(ch.webhookProvider)})`}
+                {teamsConfigs.map((config) => {
+                  const teamsChannel = findTeamsChannel(config)
+                  const isEnabled = Boolean(config.active && teamsChannel?.enabled)
+                  const testResult = testResults[config.id]
+                  const isTesting = testingConfigId === config.id
+
+                  return (
+                    <tr key={config.id} className="border-b border-neutral-100">
+                      <td className="py-3 px-4 text-text-primary">{config.alertType}</td>
+                      <td className="py-3 px-4 text-text-secondary">
+                        {config.warehouseId ? `창고 ${config.warehouseId}` : '전체 센터'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="space-y-1">
+                          <span className="px-2 py-0.5 text-xs bg-primary-50 text-primary-700 rounded">Microsoft Teams</span>
+                          <p className="text-xs font-mono text-text-secondary">
+                            {maskWebhookUrl(teamsChannel?.webhookUrlMasked ?? teamsChannel?.webhookUrl)}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        {isEnabled ? (
+                          <span className="px-2 py-0.5 text-xs bg-success/10 text-success rounded">활성</span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-xs bg-neutral-200 text-text-secondary rounded">비활성</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {isTesting ? (
+                          <span className="text-sm text-text-secondary" role="status">Teams 테스트 전송 중...</span>
+                        ) : testResult ? (
+                          <span className={`inline-flex items-center gap-1 text-sm ${testResult.status === 'success' ? 'text-success' : 'text-error'}`}>
+                            {testResult.status === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                            {testResult.status === 'success' ? '성공' : '실패'}: {testResult.message}
                           </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      {config.active ? (
-                        <span className="px-2 py-0.5 text-xs bg-success/10 text-success rounded">활성</span>
-                      ) : (
-                        <span className="px-2 py-0.5 text-xs bg-neutral-200 text-text-secondary rounded">비활성</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        {config.channels.some((ch) => ch.type === 'WEBHOOK' && ch.enabled) && (
+                        ) : (
+                          <span className="text-sm text-text-secondary">아직 테스트하지 않음</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => handleTestWebhook(config.id)}
-                            className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="웹훅 테스트"
-                            disabled={testWebhookMutation.isPending}
+                            className="p-1.5 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                            title="Teams 테스트 전송"
+                            disabled={!isEnabled || isTesting || testWebhookMutation.isPending}
                           >
                             <Send className="w-4 h-4 text-blue-500" />
                           </button>
-                        )}
-                        {testResults[config.id] && (
-                          testResults[config.id]!.success ? (
-                            <CheckCircle className="w-4 h-4 text-success" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-error" />
-                          )
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(config)}
-                          className="p-1.5 hover:bg-neutral-100 rounded-lg transition-colors"
-                          title="수정"
-                        >
-                          <Edit2 className="w-4 h-4 text-text-secondary" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(config.id)}
-                          className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                          title="삭제"
-                        >
-                          <Trash2 className="w-4 h-4 text-error" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleActive(config)}
+                            className="p-1.5 hover:bg-neutral-100 rounded-lg transition-colors disabled:opacity-50"
+                            title={config.active ? 'Teams 채널 비활성화' : 'Teams 채널 활성화'}
+                            disabled={isMutating}
+                          >
+                            <Power className="w-4 h-4 text-text-secondary" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(config)}
+                            className="p-1.5 hover:bg-neutral-100 rounded-lg transition-colors"
+                            title="수정"
+                          >
+                            <Edit2 className="w-4 h-4 text-text-secondary" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(config.id)}
+                            className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                            title="삭제"
+                          >
+                            <Trash2 className="w-4 h-4 text-error" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="text-text-secondary">등록된 채널 설정이 없습니다.</p>
+          <div className="rounded-lg border border-dashed border-neutral-300 p-6 text-center">
+            <p className="font-medium text-text-primary">등록된 Microsoft Teams 채널이 없습니다.</p>
+            <p className="mt-1 text-sm text-text-secondary">새 Teams 설정을 추가하면 이벤트 유형별 테스트 전송과 활성화 상태를 관리할 수 있습니다.</p>
+          </div>
         )}
       </div>
 
@@ -357,7 +494,7 @@ export function NotificationChannelPage() {
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-neutral-900">
-                {editingConfig ? '채널 설정 수정' : '새 채널 설정'}
+                {editingConfig ? 'Teams 채널 설정 수정' : '새 Teams 채널 설정'}
               </h2>
               <button
                 type="button"
@@ -370,10 +507,16 @@ export function NotificationChannelPage() {
             </div>
 
             <form
-              aria-label={editingConfig ? '채널 설정 수정 폼' : '새 채널 설정 폼'}
+              aria-label={editingConfig ? 'Teams 채널 설정 수정 폼' : '새 Teams 채널 설정 폼'}
               onSubmit={handleSubmit}
               className="space-y-5"
             >
+              {formError && (
+                <div className="rounded-lg border border-error/30 bg-error/5 p-3 text-sm text-error" role="alert">
+                  {formError}
+                </div>
+              )}
+
               {/* Center */}
               <div>
                 <label htmlFor="configCenter" className="block text-sm font-medium text-neutral-700 mb-1">
@@ -424,10 +567,10 @@ export function NotificationChannelPage() {
                 </select>
               </div>
 
-              {/* Alert type */}
+              {/* Event type */}
               <div>
                 <label htmlFor="configAlertType" className="block text-sm font-medium text-neutral-700 mb-1">
-                  알림 유형 <span className="text-error">*</span>
+                  이벤트 유형 <span className="text-error">*</span>
                 </label>
                 <select
                   id="configAlertType"
@@ -439,14 +582,14 @@ export function NotificationChannelPage() {
                   required
                   disabled={!!editingConfig}
                 >
-                  {ALERT_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
+                  {EVENT_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label} ({type.value})
                     </option>
                   ))}
                 </select>
                 {editingConfig && (
-                  <p className="text-xs text-neutral-500 mt-1">알림 유형은 수정할 수 없습니다</p>
+                  <p className="text-xs text-neutral-500 mt-1">이벤트 유형은 수정할 수 없습니다</p>
                 )}
               </div>
 
@@ -462,100 +605,53 @@ export function NotificationChannelPage() {
                   className="w-4 h-4 text-primary-600 border-neutral-300 rounded focus:ring-primary-500"
                 />
                 <label htmlFor="configActive" className="text-sm text-neutral-700">
-                  설정 활성화
+                  Teams 채널 설정 활성화
                 </label>
               </div>
 
-              {/* Channels */}
-              <div className="space-y-3">
+              <div className="border border-neutral-200 rounded-lg p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-neutral-700">알림 채널</h3>
-                  <button
-                    type="button"
-                    onClick={addChannel}
-                    className="flex items-center gap-1 px-2 py-1 text-sm border border-neutral-300 rounded hover:bg-neutral-50 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    웹훅 추가
-                  </button>
+                  <div>
+                    <h3 className="text-sm font-medium text-neutral-700">Microsoft Teams</h3>
+                    <p className="text-xs text-neutral-500">Teams webhook URL은 저장 후 화면에 전체 표시하지 않습니다.</p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.channels[0]?.enabled ?? true}
+                      onChange={(e) => toggleTeamsChannel(e.target.checked)}
+                      className="w-4 h-4 text-primary-600 border-neutral-300 rounded focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-neutral-700">Teams 전송 활성</span>
+                  </label>
                 </div>
 
-                {formData.channels.map((channel, index) => (
-                  <div
-                    key={`${channel.type}-${channel.webhookProvider ?? 'none'}-${formData.channels.slice(0, index).filter(c => c.type === channel.type && c.webhookProvider === channel.webhookProvider).length}`}
-                    className="border border-neutral-200 rounded-lg p-4 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <select
-                          value={channel.type}
-                          onChange={(e) => {
-                            const newType = e.target.value as ChannelType
-                            setFormData((prev) => ({
-                              ...prev,
-                              channels: prev.channels.map((ch, i) =>
-                                i === index
-                                  ? {
-                                      ...ch,
-                                      type: newType,
-                                      webhookProvider: newType === 'WEBHOOK' ? (ch.webhookProvider ?? 'SLACK') : null,
-                                    }
-                                  : ch
-                              ),
-                            }))
-                          }}
-                          className="px-3 py-1.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          disabled={channel.type !== 'WEBHOOK' && formData.channels.filter((c) => c.type === channel.type).length === 1}
-                        >
-                          {CHANNEL_TYPES.map((ct) => (
-                            <option key={ct.value} value={ct.value}>
-                              {ct.label}
-                            </option>
-                          ))}
-                        </select>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={channel.enabled}
-                            onChange={(e) => toggleChannel(index, e.target.checked)}
-                            className="w-4 h-4 text-primary-600 border-neutral-300 rounded focus:ring-primary-500"
-                          />
-                          <span className="text-sm text-neutral-700">활성</span>
-                        </label>
-                      </div>
-                      {channel.type === 'WEBHOOK' && formData.channels.filter((c) => c.type === 'WEBHOOK').length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeChannel(index)}
-                          className="p-1 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4 text-error" />
-                        </button>
-                      )}
-                    </div>
-
-                    {channel.type === 'WEBHOOK' && (
-                      <div>
-                        <label htmlFor={`provider-${index}`} className="block text-sm font-medium text-neutral-700 mb-1">
-                          웹훅 제공자
-                        </label>
-                        <select
-                          id={`provider-${index}`}
-                          value={channel.webhookProvider ?? 'SLACK'}
-                          onChange={(e) => updateWebhookProvider(index, e.target.value)}
-                          className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                          disabled={!channel.enabled}
-                        >
-                          {WEBHOOK_PROVIDERS.map((wp) => (
-                            <option key={wp.value} value={wp.value}>
-                              {wp.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                {editingConfig && (
+                  <div className="rounded-lg bg-neutral-50 p-3">
+                    <p className="text-xs font-medium text-neutral-600">저장된 Teams webhook</p>
+                    <p className="mt-1 text-xs font-mono text-text-secondary">{MASKED_WEBHOOK_FALLBACK}</p>
                   </div>
-                ))}
+                )}
+
+                <div>
+                  <label htmlFor="teamsWebhookUrl" className="block text-sm font-medium text-neutral-700 mb-1">
+                    Teams webhook URL {!editingConfig && <span className="text-error">*</span>}
+                  </label>
+                  <input
+                    id="teamsWebhookUrl"
+                    type="url"
+                    value={formData.channels[0]?.webhookUrl ?? ''}
+                    onChange={(e) => updateTeamsWebhookUrl(e.target.value)}
+                    placeholder="https://...webhook.office.com/..."
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-neutral-500 mt-1">
+                    {editingConfig
+                      ? '변경할 때만 새 Microsoft Teams webhook URL을 입력하세요. 기존 URL은 보안상 표시하지 않습니다.'
+                      : 'Microsoft Teams에서 발급한 HTTPS webhook URL만 저장할 수 있습니다.'}
+                  </p>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-neutral-200">
@@ -584,8 +680,8 @@ export function NotificationChannelPage() {
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="채널 설정 삭제"
-        description="이 알림 채널 설정을 삭제하시겠습니까? 삭제된 설정은 비활성화 상태로 변경됩니다."
+        title="Teams 채널 설정 삭제"
+        description="이 Microsoft Teams 채널 설정을 삭제하시겠습니까? 삭제된 설정은 비활성화 상태로 변경됩니다."
         variant="destructive"
         confirmLabel="삭제"
       />

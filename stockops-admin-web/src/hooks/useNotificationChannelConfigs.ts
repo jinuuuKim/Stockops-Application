@@ -33,6 +33,17 @@ export function useNotificationChannelConfigs(
   })
 }
 
+export function useAllNotificationChannelConfigs(): UseQueryResult<NotificationChannelConfig[], AxiosError> {
+  return useQuery({
+    queryKey: ['notification-channel-configs', 'all'],
+    queryFn: async () => {
+      const response = await api.get<NotificationChannelConfig[]>('/v1/notification-channel-configs')
+      return Array.isArray(response.data) ? response.data : []
+    },
+    staleTime: 60_000,
+  })
+}
+
 export function useCreateNotificationChannelConfig(): UseMutationResult<
   NotificationChannelConfig,
   AxiosError,

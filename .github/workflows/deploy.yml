@@ -43,10 +43,14 @@ jobs:
         docker build -t $ECR_REGISTRY/stockops-ai:latest ./stockops-ai-module
         docker push $ECR_REGISTRY/stockops-ai:latest
         
-        docker build -t $ECR_REGISTRY/stockops-admin-web:latest ./stockops-admin-web
+        docker build \
+          --build-arg NGINX_CONF=nginx.aws.conf \
+          -t $ECR_REGISTRY/stockops-admin-web:latest ./stockops-admin-web
         docker push $ECR_REGISTRY/stockops-admin-web:latest
-        
-        docker build -t $ECR_REGISTRY/stockops-client-web:latest ./stockops-client-web
+
+        docker build \
+          --build-arg NGINX_CONF=nginx.aws.conf \
+          -t $ECR_REGISTRY/stockops-client-web:latest ./stockops-client-web
         docker push $ECR_REGISTRY/stockops-client-web:latest
 
     - name: Set up Kubeconfig Context for Amazon EKS

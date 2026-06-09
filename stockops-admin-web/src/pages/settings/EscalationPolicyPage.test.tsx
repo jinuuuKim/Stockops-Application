@@ -88,18 +88,22 @@ describe('EscalationPolicyPage', () => {
     vi.mocked(useCenters).mockReturnValue({
       data: [{ id: 1, code: 'C01', name: '강남센터' }],
       isLoading: false,
-    } as ReturnType<typeof useCenters>)
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useCenters>)
     vi.mocked(useWarehousesByCenter).mockReturnValue({
       data: [{ id: 1, code: 'W01', name: '강남 1창고' }],
     } as ReturnType<typeof useWarehousesByCenter>)
     vi.mocked(useEscalationPolicies).mockReturnValue({
       data: createPolicies(),
       isLoading: false,
-    } as ReturnType<typeof useEscalationPolicies>)
+      isError: false,
+    } as unknown as ReturnType<typeof useEscalationPolicies>)
     vi.mocked(useActiveAlerts).mockReturnValue({
       data: createAlerts(),
       isLoading: false,
-    } as ReturnType<typeof useActiveAlerts>)
+      isError: false,
+    } as unknown as ReturnType<typeof useActiveAlerts>)
     vi.mocked(useCreateEscalationPolicy).mockReturnValue(createMockMutation<ReturnType<typeof useCreateEscalationPolicy>>())
     vi.mocked(useUpdateEscalationPolicy).mockReturnValue(createMockMutation<ReturnType<typeof useUpdateEscalationPolicy>>())
     vi.mocked(useDeleteEscalationPolicy).mockReturnValue(createMockMutation<ReturnType<typeof useDeleteEscalationPolicy>>())
@@ -141,6 +145,15 @@ describe('EscalationPolicyPage', () => {
     expect(screen.getByRole('form', { name: '새 정책 폼' })).toBeInTheDocument()
   })
 
+  it('does not show slack escalation channel option', () => {
+    render(<EscalationPolicyPage />)
+    fireEvent.change(screen.getByLabelText('센터 선택'), { target: { value: '1' } })
+    fireEvent.click(screen.getByText('새 정책'))
+    expect(screen.getByText('SMS')).toBeInTheDocument()
+    expect(screen.getByText('이메일')).toBeInTheDocument()
+    expect(screen.queryByText('외부 메신저')).not.toBeInTheDocument()
+  })
+
   it('opens edit modal when edit button clicked', () => {
     render(<EscalationPolicyPage />)
     fireEvent.change(screen.getByLabelText('센터 선택'), { target: { value: '1' } })
@@ -163,6 +176,46 @@ describe('EscalationPolicyPage', () => {
     render(<EscalationPolicyPage />)
     expect(screen.getByText('활성 알림')).toBeInTheDocument()
     expect(screen.getByText('Temp high')).toBeInTheDocument()
+  })
+
+  it('shows center list error with retry action', () => {
+    const refetchCenters = vi.fn()
+    vi.mocked(useCenters).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      refetch: refetchCenters,
+    } as unknown as ReturnType<typeof useCenters>)
+
+    render(<EscalationPolicyPage />)
+
+    expect(screen.getByText('센터 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('다시 시도'))
+    expect(refetchCenters).toHaveBeenCalled()
+  })
+
+  it('shows policy list error message', () => {
+    vi.mocked(useEscalationPolicies).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as unknown as ReturnType<typeof useEscalationPolicies>)
+
+    render(<EscalationPolicyPage />)
+
+    expect(screen.getByText('정책 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
+  })
+
+  it('shows active alerts error message', () => {
+    vi.mocked(useActiveAlerts).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    } as unknown as ReturnType<typeof useActiveAlerts>)
+
+    render(<EscalationPolicyPage />)
+
+    expect(screen.getByText('활성 알림을 불러오지 못했습니다. 잠시 후 다시 시도하세요.')).toBeInTheDocument()
   })
 
   it('shows alert severity badge', () => {

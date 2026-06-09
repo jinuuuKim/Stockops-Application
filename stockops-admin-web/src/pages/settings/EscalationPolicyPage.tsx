@@ -48,7 +48,6 @@ const ALL_ROLES = [
 const ALL_CHANNELS = [
   { value: 'SMS', label: 'SMS' },
   { value: 'EMAIL', label: '이메일' },
-  { value: 'SLACK', label: 'Slack' },
 ]
 
 function emptyRule(level: number): EscalationRuleRequest {
@@ -104,10 +103,23 @@ export function EscalationPolicyPage() {
   const [formData, setFormData] = useState<EscalationPolicyRequest>(emptyForm())
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
 
-  const { data: centers, isLoading: centersLoading } = useCenters()
+  const {
+    data: centers,
+    isLoading: centersLoading,
+    isError: centersIsError,
+    refetch: refetchCenters,
+  } = useCenters()
   const { data: warehouses } = useWarehousesByCenter(selectedCenterId)
-  const { data: policies, isLoading: policiesLoading } = useEscalationPolicies(selectedCenterId)
-  const { data: alerts, isLoading: alertsLoading } = useActiveAlerts()
+  const {
+    data: policies,
+    isLoading: policiesLoading,
+    isError: policiesIsError,
+  } = useEscalationPolicies(selectedCenterId)
+  const {
+    data: alerts,
+    isLoading: alertsLoading,
+    isError: alertsIsError,
+  } = useActiveAlerts()
 
   const createMutation = useCreateEscalationPolicy()
   const updateMutation = useUpdateEscalationPolicy()
@@ -265,20 +277,33 @@ export function EscalationPolicyPage() {
       {/* Center selector */}
       <div className="bg-white rounded-xl border border-neutral-200 p-4">
         <label htmlFor="centerFilter" className="block text-sm font-medium text-neutral-700 mb-2">센터 선택</label>
-        <select
-          id="centerFilter"
-          value={selectedCenterId ?? ''}
-          onChange={(e) => setSelectedCenterId(e.target.value ? Number(e.target.value) : null)}
-          className="w-full max-w-md px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          disabled={centersLoading}
-        >
-          <option value="">센터를 선택하세요</option>
-          {centers?.map((center) => (
-            <option key={center.id} value={center.id}>
-              {center.name}
-            </option>
-          ))}
-        </select>
+        {centersIsError ? (
+          <div className="rounded-lg border border-error/20 bg-error/5 p-4 text-sm text-error">
+            <p>센터 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.</p>
+            <button
+              type="button"
+              onClick={() => refetchCenters()}
+              className="mt-3 inline-flex items-center rounded-lg bg-error px-3 py-1.5 text-sm font-medium text-white hover:bg-error/90 transition-colors"
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : (
+          <select
+            id="centerFilter"
+            value={selectedCenterId ?? ''}
+            onChange={(e) => setSelectedCenterId(e.target.value ? Number(e.target.value) : null)}
+            className="w-full max-w-md px-3 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            disabled={centersLoading}
+          >
+            <option value="">센터를 선택하세요</option>
+            {centers?.map((center) => (
+              <option key={center.id} value={center.id}>
+                {center.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Policy list */}
@@ -305,6 +330,8 @@ export function EscalationPolicyPage() {
 
         {policiesLoading ? (
           <p className="text-text-secondary">정책을 불러오는 중...</p>
+        ) : policiesIsError ? (
+          <p className="text-error">정책 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.</p>
         ) : !selectedCenterId ? (
           <p className="text-text-secondary">센터를 선택하여 정책을 확인하세요.</p>
         ) : policies && policies.length > 0 ? (
@@ -373,6 +400,8 @@ export function EscalationPolicyPage() {
 
         {alertsLoading ? (
           <p className="text-text-secondary">알림을 불러오는 중...</p>
+        ) : alertsIsError ? (
+          <p className="text-error">활성 알림을 불러오지 못했습니다. 잠시 후 다시 시도하세요.</p>
         ) : alerts && alerts.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -652,6 +681,11 @@ export function EscalationPolicyPage() {
                           </label>
                         ))}
                       </div>
+                      {rule.channels.some((channel) => !ALL_CHANNELS.some((item) => item.value === channel)) && (
+                        <p className="mt-2 text-xs text-neutral-500">
+                          지원하지 않는 채널은 표시되지 않습니다.
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

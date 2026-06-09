@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.stockops.exception.ResourceNotFoundException;
 import com.stockops.notification.webhook.WebhookEndpointConfig;
+import com.stockops.notification.webhook.WebhookEndpointConfig.WebhookProviderType;
 import com.stockops.notification.webhook.WebhookEndpointConfigRepository;
 import com.stockops.notification.webhook.WebhookPayload;
 import com.stockops.notification.webhook.WebhookService;
@@ -34,6 +35,9 @@ public class NotificationChannelConfigService {
 
     @Transactional(readOnly = true)
     public List<NotificationChannelConfig> findAllByCenterId(Long centerId) {
+        if (centerId == null) {
+            return configRepository.findByActiveTrue();
+        }
         return configRepository.findByCenterIdAndActiveTrue(centerId);
     }
 
@@ -90,7 +94,9 @@ public class NotificationChannelConfigService {
             config.setChannels(List.of());
         }
 
-        return configRepository.save(config);
+        NotificationChannelConfig savedConfig = configRepository.save(config);
+        upsertWebhookEndpoints(savedConfig, request.channels());
+        return savedConfig;
     }
 
     /**
@@ -122,7 +128,9 @@ public class NotificationChannelConfigService {
             config.setChannels(List.of());
         }
 
-        return configRepository.save(config);
+        NotificationChannelConfig savedConfig = configRepository.save(config);
+        upsertWebhookEndpoints(savedConfig, request.channels());
+        return savedConfig;
     }
 
     /**
@@ -185,14 +193,45 @@ public class NotificationChannelConfigService {
 
         try {
             webhookService.send(providerType, endpoint.getWebhookUrl(), testPayload);
-            return new WebhookTestResult(true, "Test webhook sent successfully to " + endpoint.getWebhookUrl(), providerType);
+            return new WebhookTestResult(true, "Test webhook sent successfully to masked endpoint", providerType);
         } catch (Exception e) {
             log.error("Webhook test failed for configId={}: {}", configId, e.getMessage(), e);
-            return new WebhookTestResult(false, "Webhook test failed: " + e.getMessage(), providerType);
+            return new WebhookTestResult(false, "Webhook test failed for provider: " + providerType, providerType);
         }
     }
 
     private static final Logger log = LoggerFactory.getLogger(NotificationChannelConfigService.class);
+
+    private void upsertWebhookEndpoints(NotificationChannelConfig config, List<ChannelEntryRequest> channels) {
+        if (channels == null) {
+            return;
+        }
+
+        channels.stream()
+                .filter(ch -> "WEBHOOK".equals(ch.type()))
+                .filter(ch -> ch.webhookProvider() != null && !ch.webhookProvider().isBlank())
+                .filter(ch -> ch.webhookUrl() != null && !ch.webhookUrl().isBlank())
+                .forEach(ch -> upsertWebhookEndpoint(config, ch));
+    }
+
+    private void upsertWebhookEndpoint(NotificationChannelConfig config, ChannelEntryRequest channel) {
+        WebhookProviderType providerType = WebhookProviderType.valueOf(channel.webhookProvider());
+        WebhookEndpointConfig endpoint = webhookEndpointConfigRepository
+                .findByCenterIdAndProviderTypeAndEnabledTrue(config.getCenterId(), providerType)
+                .stream()
+                .filter(existing -> config.getWarehouseId() == null
+                        ? existing.getWarehouseId() == null
+                        : config.getWarehouseId().equals(existing.getWarehouseId()))
+                .findFirst()
+                .orElseGet(WebhookEndpointConfig::new);
+
+        endpoint.setCenterId(config.getCenterId());
+        endpoint.setWarehouseId(config.getWarehouseId());
+        endpoint.setProviderType(providerType);
+        endpoint.setWebhookUrl(channel.webhookUrl().trim());
+        endpoint.setEnabled(channel.enabled());
+        webhookEndpointConfigRepository.save(endpoint);
+    }
 
     public NotificationChannelConfigService(final NotificationChannelConfigRepository configRepository, final WebhookEndpointConfigRepository webhookEndpointConfigRepository, final WebhookService webhookService) {
         this.configRepository = configRepository;

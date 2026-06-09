@@ -14,6 +14,8 @@ export interface ChannelEntry {
   type: ChannelType
   enabled: boolean
   webhookProvider: string | null
+  webhookUrl?: string | null
+  webhookUrlMasked?: string | null
 }
 
 export interface NotificationChannelConfig {
@@ -39,6 +41,7 @@ export interface ChannelEntryRequest {
   type: string
   enabled: boolean
   webhookProvider: string | null
+  webhookUrl?: string
 }
 
 export interface WebhookTestResult {
