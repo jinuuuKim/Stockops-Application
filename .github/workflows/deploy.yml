@@ -1,18 +1,20 @@
-name: StockOps MSA Production EKS CI/CD Pipeline
+name: StockOps MSA Production EKS & CloudFront CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ] # 애플리케이션 소스가 main에 반영되면 가동합니다.
+    branches: [ "main" ]
   workflow_dispatch:
 
 env:
   AWS_REGION: ap-northeast-2
-  EKS_CLUSTER_NAME: seoul-cluster # 🌟 개발자님의 실제 EKS 클러스터 이름
+  EKS_CLUSTER_NAME: seoul-cluster
   ECR_REGISTRY: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
+  S3_CLIENT_BUCKET: siseon-frontend-client
+  S3_ADMIN_BUCKET: siseon-frontend-admin
 
 jobs:
   deploy:
-    name: Build, Push and Deploy to Amazon EKS
+    name: Build, Push and Deploy to EKS & S3/CloudFront
     runs-on: ubuntu-latest
 
     permissions:
@@ -29,38 +31,54 @@ jobs:
         role-to-assume: arn:aws:iam::448768137813:role/github-actions-ecr-push
         aws-region: ${{ env.AWS_REGION }}
 
-    # 🌟 [오타 완벽 해결] 중복 기입되었던 amazon-aws-ecr-login 을 정석 주소인 amazon-ecr-login 으로 교정했습니다.
+    - name: Set up Node.js Environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        cache-dependency-path: |
+          ./stockops-client-web/package-lock.json
+          ./stockops-admin-web/package-lock.json
+
+    - name: Build & Deploy Client Web to S3
+      run: |
+        cd ./stockops-client-web
+        npm install
+        npm run build
+        aws s3 sync ./dist s3://${{ env.S3_CLIENT_BUCKET }} --delete
+
+    - name: Build & Deploy Admin Web to S3
+      run: |
+        cd ./stockops-admin-web
+        npm install
+        npm run build
+        aws s3 sync ./dist s3://${{ env.S3_ADMIN_BUCKET }} --delete
+
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    # 애플리케이션 저장소 루트에 위치한 4개 폴더를 정밀 타격하여 도커라이징합니다.
-    - name: Build, Tag, and Push Images to Amazon ECR
+    - name: Build, Tag, and Push Backend Images to Amazon ECR
       run: |
         docker build -t $ECR_REGISTRY/stockops-api:latest ./stockops-api-server
         docker push $ECR_REGISTRY/stockops-api:latest
         
         docker build -t $ECR_REGISTRY/stockops-ai:latest ./stockops-ai-module
         docker push $ECR_REGISTRY/stockops-ai:latest
-        
-        docker build \
-          --build-arg NGINX_CONF=nginx.aws.conf \
-          -t $ECR_REGISTRY/stockops-admin-web:latest ./stockops-admin-web
-        docker push $ECR_REGISTRY/stockops-admin-web:latest
-
-        docker build \
-          --build-arg NGINX_CONF=nginx.aws.conf \
-          -t $ECR_REGISTRY/stockops-client-web:latest ./stockops-client-web
-        docker push $ECR_REGISTRY/stockops-client-web:latest
 
     - name: Set up Kubeconfig Context for Amazon EKS
       run: |
         aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
 
-    # 테라폼 인프라가 생성해둔 stockops 네임스페이스의 실제 상용 자원들을 동적으로 새로고침합니다.
     - name: Deploy & Rollout Restart to Amazon EKS Cluster
       run: |
         kubectl rollout restart deployment/stockops-api -n stockops
         kubectl rollout restart deployment/stockops-ai -n stockops
-        kubectl rollout restart deployment/stockops-admin-web -n stockops
-        kubectl rollout restart deployment/stockops-client-web -n stockops
+
+    - name: CloudFront Cache Invalidation
+      run: |
+        CLIENT_DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[?@=='siseon.live']].Id" --output text)
+        ADMIN_DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[?@=='app.siseon.live']].Id" --output text)
+        
+        aws cloudfront create-invalidation --distribution-id $CLIENT_DIST_ID --paths "/*"
+        aws cloudfront create-invalidation --distribution-id $ADMIN_DIST_ID --paths "/*"
