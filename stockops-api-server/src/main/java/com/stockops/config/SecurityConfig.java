@@ -52,7 +52,7 @@ public class SecurityConfig {
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .cors(cors -> cors.configure(http))
+                .cors(Customizer.withDefaults())
                 .headers(headers -> headers
                         .contentTypeOptions(contentTypeOptions -> {})
                         .frameOptions(frameOptions -> frameOptions.deny())
