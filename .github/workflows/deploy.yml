@@ -9,8 +9,6 @@ env:
   AWS_REGION: ap-northeast-2
   EKS_CLUSTER_NAME: seoul-cluster
   ECR_REGISTRY: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
-  S3_CLIENT_BUCKET: siseon-frontend-client
-  S3_ADMIN_BUCKET: siseon-frontend-admin
 
 jobs:
   deploy:
@@ -35,24 +33,24 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 20
-        cache: 'npm'
-        cache-dependency-path: |
-          ./stockops-client-web/package-lock.json
-          ./stockops-admin-web/package-lock.json
 
     - name: Build & Deploy Client Web to S3
+      env:
+        S3_CLIENT_BUCKET: siseon-frontend-client
       run: |
         cd ./stockops-client-web
         npm install
         npm run build
-        aws s3 sync ./dist s3://${{ env.S3_CLIENT_BUCKET }} --delete
+        aws s3 sync ./dist s3://$S3_CLIENT_BUCKET --delete
 
     - name: Build & Deploy Admin Web to S3
+      env:
+        S3_ADMIN_BUCKET: siseon-frontend-admin
       run: |
         cd ./stockops-admin-web
         npm install
         npm run build
-        aws s3 sync ./dist s3://${{ env.S3_ADMIN_BUCKET }} --delete
+        aws s3 sync ./dist s3://$S3_ADMIN_BUCKET --delete
 
     - name: Login to Amazon ECR
       id: login-ecr
