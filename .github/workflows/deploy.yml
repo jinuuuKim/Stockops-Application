@@ -1,8 +1,8 @@
-name: StockOps MSA Production EKS & CloudFront CI/CD Pipeline
+name: StockOps MSA Production CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 env:
@@ -12,7 +12,7 @@ env:
 
 jobs:
   deploy:
-    name: Build, Push and Deploy to EKS & S3/CloudFront
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     permissions:
@@ -20,63 +20,74 @@ jobs:
       contents: read
 
     steps:
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::448768137813:role/github-actions-ecr-push
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::448768137813:role/github-actions-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Set up Node.js Environment
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      # ── 프론트엔드 빌드 & S3 배포 ──────────────────────────────────────
 
-    - name: Build & Deploy Client Web to S3
-      env:
-        S3_CLIENT_BUCKET: siseon-frontend-client
-      run: |
-        cd ./stockops-client-web
-        npm install
-        npm run build
-        aws s3 sync ./dist s3://$S3_CLIENT_BUCKET --delete
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-    - name: Build & Deploy Admin Web to S3
-      env:
-        S3_ADMIN_BUCKET: siseon-frontend-admin
-      run: |
-        cd ./stockops-admin-web
-        npm install
-        npm run build
-        aws s3 sync ./dist s3://$S3_ADMIN_BUCKET --delete
+      - name: Build & Deploy client-web → S3
+        run: |
+          cd stockops-client-web
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://siseon-frontend-client --delete
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & Deploy admin-web → S3
+        run: |
+          cd stockops-admin-web
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://siseon-frontend-admin --delete
 
-    - name: Build, Tag, and Push Backend Images to Amazon ECR
-      run: |
-        docker build -t $ECR_REGISTRY/stockops-api:latest ./stockops-api-server
-        docker push $ECR_REGISTRY/stockops-api:latest
-        
-        docker build -t $ECR_REGISTRY/stockops-ai:latest ./stockops-ai-module
-        docker push $ECR_REGISTRY/stockops-ai:latest
+      # ── 백엔드 이미지 빌드 & ECR 푸시 ─────────────────────────────────
 
-    - name: Set up Kubeconfig Context for Amazon EKS
-      run: |
-        aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Deploy & Rollout Restart to Amazon EKS Cluster
-      run: |
-        kubectl rollout restart deployment/stockops-api -n stockops
-        kubectl rollout restart deployment/stockops-ai -n stockops
+      - name: Build & Push api-server
+        run: |
+          docker build -t $ECR_REGISTRY/stockops-api:latest stockops-api-server/
+          docker push $ECR_REGISTRY/stockops-api:latest
 
-    - name: CloudFront Cache Invalidation
-      run: |
-        CLIENT_DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[?@=='siseon.live']].Id" --output text)
-        ADMIN_DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items[?@=='app.siseon.live']].Id" --output text)
-        
-        aws cloudfront create-invalidation --distribution-id $CLIENT_DIST_ID --paths "/*"
-        aws cloudfront create-invalidation --distribution-id $ADMIN_DIST_ID --paths "/*"
+      - name: Build & Push ai-module
+        run: |
+          docker build -t $ECR_REGISTRY/stockops-ai:latest stockops-ai-module/
+          docker push $ECR_REGISTRY/stockops-ai:latest
+
+      # ── EKS 롤링 재시작 ────────────────────────────────────────────────
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+      - name: Rollout restart
+        run: |
+          kubectl rollout restart deployment/stockops-api -n stockops
+          kubectl rollout restart deployment/stockops-ai -n stockops
+
+      # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
+      # CloudFront 배포 ID를 도메인 alias로 동적 조회 (하드코딩 없이)
+
+      - name: Invalidate CloudFront cache
+        run: |
+          CLIENT_DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Aliases.Items[?@=='siseon.live']].Id" \
+            --output text)
+          ADMIN_DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Aliases.Items[?@=='app.siseon.live']].Id" \
+            --output text)
+
+          aws cloudfront create-invalidation \
+            --distribution-id $CLIENT_DIST_ID --paths "/*"
+          aws cloudfront create-invalidation \
+            --distribution-id $ADMIN_DIST_ID --paths "/*"
