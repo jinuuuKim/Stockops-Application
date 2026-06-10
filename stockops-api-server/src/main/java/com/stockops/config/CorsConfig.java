@@ -44,7 +44,7 @@ public class CorsConfig {
                 .toList();
 
         CorsConfiguration configuration = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
+        configuration.setAllowedOrigins(List.of(
             "https://app.siseon.live",
             "https://siseon.live"
         ));
