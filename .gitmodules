@@ -1,0 +1,15 @@
+[submodule "sensimul"]
+	path = sensimul
+	url = https://github.com/jinuuuKim/sensimul.git
+[submodule "stockops-admin-web"]
+	path = stockops-admin-web
+	url = https://github.com/jinuuuKim/stockops-admin-web.git
+[submodule "stockops-client-web"]
+	path = stockops-client-web
+	url = https://github.com/jinuuuKim/stockops-client-web.git
+[submodule "stockops-api-server"]
+	path = stockops-api-server
+	url = https://github.com/jinuuuKim/stockops-api-server.git
+[submodule "stockops-ai-module"]
+	path = stockops-ai-module
+	url = https://github.com/jinuuuKim/stockops-ai-module.git
