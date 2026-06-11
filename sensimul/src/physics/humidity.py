@@ -1,1 +1,0 @@
-# Humidity physics model placeholder.

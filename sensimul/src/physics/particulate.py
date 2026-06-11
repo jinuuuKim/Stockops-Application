@@ -1,1 +1,0 @@
-# Particulate physics model placeholder.

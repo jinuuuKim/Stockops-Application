@@ -1,6 +1,0 @@
-node_modules
-dist
-coverage
-test-results
-.git
-npm-debug.log*
