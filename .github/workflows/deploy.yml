@@ -77,11 +77,11 @@ jobs:
           kubectl rollout restart deployment/stockops-api -n stockops
           kubectl rollout restart deployment/stockops-ai -n stockops
       
-      - name: Rollout restart (Ohio)
-        run: |
-          aws eks update-kubeconfig --region us-east-2 --name ohio-cluster
-          kubectl rollout restart deployment/stockops-api -n stockops
-          kubectl rollout restart deployment/stockops-ai -n stockops
+      # - name: Rollout restart (Ohio)
+      #   run: |
+      #     aws eks update-kubeconfig --region us-east-2 --name ohio-cluster
+      #     kubectl rollout restart deployment/stockops-api -n stockops
+      #     kubectl rollout restart deployment/stockops-ai -n stockops
 
       # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
       # CloudFront 배포 ID를 도메인 alias로 동적 조회 (하드코딩 없이)
