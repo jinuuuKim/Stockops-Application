@@ -8,13 +8,15 @@ on:
 env:
   AWS_REGION: ap-northeast-2
   EKS_CLUSTER_NAME: seoul-cluster
-  ECR_REGISTRY: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_SEOUL: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
+  ECR_OHIO: 448768137813.dkr.ecr.us-east-2.amazonaws.com
+  # 오하이오 재활성화 시 "true" → 양 리전 push + 오하이오 rollout 자동 활성화
+  PUSH_OHIO: "false"
 
 jobs:
   deploy:
     name: Build & Deploy
     runs-on: ubuntu-latest
-
     permissions:
       id-token: write
       contents: read
@@ -32,7 +34,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       # ── 프론트엔드 빌드 & S3 배포 ──────────────────────────────────────
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -52,40 +53,56 @@ jobs:
           npm run build
           aws s3 sync dist/ s3://siseon-frontend-admin --delete
 
-      # ── 백엔드 이미지 빌드 & ECR 푸시 ─────────────────────────────────
-
+      # ── ECR 로그인 (서울 + 오하이오) ──────────────────────────────────
       - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
+        run: |
+          aws ecr get-login-password --region ap-northeast-2 \
+            | docker login --username AWS --password-stdin $ECR_SEOUL
+          if [ "$PUSH_OHIO" = "true" ]; then
+            aws ecr get-login-password --region us-east-2 \
+              | docker login --username AWS --password-stdin $ECR_OHIO
+          fi
 
+      # ── 백엔드 빌드 1회 → 양 리전 직접 push (:latest + :sha) ───────────
       - name: Build & Push api-server
         run: |
-          docker build -t $ECR_REGISTRY/stockops-api:latest stockops-api-server/
-          docker push $ECR_REGISTRY/stockops-api:latest
+          REGISTRIES="$ECR_SEOUL"
+          [ "$PUSH_OHIO" = "true" ] && REGISTRIES="$REGISTRIES $ECR_OHIO"
+          docker build -t stockops-api:${{ github.sha }} stockops-api-server/
+          for reg in $REGISTRIES; do
+            docker tag stockops-api:${{ github.sha }} $reg/stockops-api:latest
+            docker tag stockops-api:${{ github.sha }} $reg/stockops-api:${{ github.sha }}
+            docker push $reg/stockops-api:latest
+            docker push $reg/stockops-api:${{ github.sha }}
+          done
 
       - name: Build & Push ai-module
         run: |
-          docker build -t $ECR_REGISTRY/stockops-ai:latest stockops-ai-module/
-          docker push $ECR_REGISTRY/stockops-ai:latest
+          REGISTRIES="$ECR_SEOUL"
+          [ "$PUSH_OHIO" = "true" ] && REGISTRIES="$REGISTRIES $ECR_OHIO"
+          docker build -t stockops-ai:${{ github.sha }} stockops-ai-module/
+          for reg in $REGISTRIES; do
+            docker tag stockops-ai:${{ github.sha }} $reg/stockops-ai:latest
+            docker tag stockops-ai:${{ github.sha }} $reg/stockops-ai:${{ github.sha }}
+            docker push $reg/stockops-ai:latest
+            docker push $reg/stockops-ai:${{ github.sha }}
+          done
 
       # ── EKS 롤링 재시작 ────────────────────────────────────────────────
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-
-      - name: Rollout restart
+      - name: Rollout restart (Seoul)
         run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
           kubectl rollout restart deployment/stockops-api -n stockops
           kubectl rollout restart deployment/stockops-ai -n stockops
-      
-      # - name: Rollout restart (Ohio)
-      #   run: |
-      #     aws eks update-kubeconfig --region us-east-2 --name ohio-cluster
-      #     kubectl rollout restart deployment/stockops-api -n stockops
-      #     kubectl rollout restart deployment/stockops-ai -n stockops
+
+      - name: Rollout restart (Ohio)
+        if: ${{ env.PUSH_OHIO == 'true' }}
+        run: |
+          aws eks update-kubeconfig --region us-east-2 --name ohio-cluster
+          kubectl rollout restart deployment/stockops-api -n stockops
+          kubectl rollout restart deployment/stockops-ai -n stockops
 
       # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
-      # CloudFront 배포 ID를 도메인 alias로 동적 조회 (하드코딩 없이)
-
       - name: Invalidate CloudFront cache
         run: |
           CLIENT_DIST_ID=$(aws cloudfront list-distributions \
@@ -94,8 +111,5 @@ jobs:
           ADMIN_DIST_ID=$(aws cloudfront list-distributions \
             --query "DistributionList.Items[?Aliases.Items[?@=='app.siseon.live']].Id" \
             --output text)
-
-          aws cloudfront create-invalidation \
-            --distribution-id $CLIENT_DIST_ID --paths "/*"
-          aws cloudfront create-invalidation \
-            --distribution-id $ADMIN_DIST_ID --paths "/*"
+          aws cloudfront create-invalidation --distribution-id $CLIENT_DIST_ID --paths "/*"
+          aws cloudfront create-invalidation --distribution-id $ADMIN_DIST_ID --paths "/*"
