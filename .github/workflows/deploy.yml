@@ -91,7 +91,7 @@ jobs:
       - name: Update GitOps manifest (Seoul)
         run: |
           git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/jinuuuKim/Stockops-GitOps.git gitops
-          cd gitops/apps/stockops/overlays/seoul
+          cd gitops/apps/stockops/seoul/overlays
 
           kustomize edit set image \
             $ECR_SEOUL/stockops-api=$ECR_SEOUL/stockops-api:${{ github.sha }} \
@@ -100,8 +100,21 @@ jobs:
           cd "$GITHUB_WORKSPACE/gitops"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add apps/stockops/overlays/seoul/kustomization.yaml
+          git add apps/stockops/seoul/overlays/kustomization.yaml
           git commit -m "deploy(seoul): ${{ github.sha }}" || echo "no changes to commit"
+          git push
+      - name: Update GitOps manifest (Ohio)
+        if: ${{ env.PUSH_OHIO == 'true' }}
+        run: |
+          cd "$GITHUB_WORKSPACE/gitops/apps/stockops/ohio/overlays"
+
+          kustomize edit set image \
+            $ECR_OHIO/stockops-api=$ECR_OHIO/stockops-api:${{ github.sha }} \
+            $ECR_OHIO/stockops-ai=$ECR_OHIO/stockops-ai:${{ github.sha }}
+
+          cd "$GITHUB_WORKSPACE/gitops"
+          git add apps/stockops/ohio/overlays/kustomization.yaml
+          git commit -m "deploy(ohio): ${{ github.sha }}" || echo "no changes to commit"
           git push
 
       # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
