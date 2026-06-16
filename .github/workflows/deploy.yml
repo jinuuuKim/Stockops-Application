@@ -84,15 +84,16 @@ jobs:
             docker push $reg/stockops-ai:${{ github.sha }}
           done
 
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
       # ── GitOps 레포에 이미지 SHA commit → ArgoCD 가 감지·동기화 ──────────
       - name: Update GitOps manifest (Seoul)
         run: |
           git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/jinuuuKim/Stockops-GitOps.git gitops
           cd gitops/apps/stockops/overlays/seoul
 
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-
-          ./kustomize edit set image \
+          kustomize edit set image \
             $ECR_SEOUL/stockops-api=$ECR_SEOUL/stockops-api:${{ github.sha }} \
             $ECR_SEOUL/stockops-ai=$ECR_SEOUL/stockops-ai:${{ github.sha }}
 
