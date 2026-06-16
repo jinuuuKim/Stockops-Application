@@ -63,16 +63,14 @@ jobs:
               | docker login --username AWS --password-stdin $ECR_OHIO
           fi
 
-      # ── 백엔드 빌드 1회 → 양 리전 직접 push (:latest + :sha) ───────────
+      # ── 백엔드 빌드 1회 → 양 리전 직접 push (:sha) ───────────
       - name: Build & Push api-server
         run: |
           REGISTRIES="$ECR_SEOUL"
           [ "$PUSH_OHIO" = "true" ] && REGISTRIES="$REGISTRIES $ECR_OHIO"
           docker build -t stockops-api:${{ github.sha }} stockops-api-server/
           for reg in $REGISTRIES; do
-            docker tag stockops-api:${{ github.sha }} $reg/stockops-api:latest
             docker tag stockops-api:${{ github.sha }} $reg/stockops-api:${{ github.sha }}
-            docker push $reg/stockops-api:latest
             docker push $reg/stockops-api:${{ github.sha }}
           done
 
@@ -82,11 +80,28 @@ jobs:
           [ "$PUSH_OHIO" = "true" ] && REGISTRIES="$REGISTRIES $ECR_OHIO"
           docker build -t stockops-ai:${{ github.sha }} stockops-ai-module/
           for reg in $REGISTRIES; do
-            docker tag stockops-ai:${{ github.sha }} $reg/stockops-ai:latest
             docker tag stockops-ai:${{ github.sha }} $reg/stockops-ai:${{ github.sha }}
-            docker push $reg/stockops-ai:latest
             docker push $reg/stockops-ai:${{ github.sha }}
           done
+
+      # ── GitOps 레포에 이미지 SHA commit → ArgoCD 가 감지·동기화 ──────────
+      - name: Update GitOps manifest (Seoul)
+        run: |
+          git clone https://x-access-token:${{ secrets.GITOPS_TOKEN }}@github.com/jinuuuKim/Stockops-GitOps.git gitops
+          cd gitops/apps/stockops/overlays/seoul
+
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+
+          ./kustomize edit set image \
+            $ECR_SEOUL/stockops-api=$ECR_SEOUL/stockops-api:${{ github.sha }} \
+            $ECR_SEOUL/stockops-ai=$ECR_SEOUL/stockops-ai:${{ github.sha }}
+
+          cd "$GITHUB_WORKSPACE/gitops"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/stockops/overlays/seoul/kustomization.yaml
+          git commit -m "deploy(seoul): ${{ github.sha }}" || echo "no changes to commit"
+          git push
 
       # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
       - name: Invalidate CloudFront cache
