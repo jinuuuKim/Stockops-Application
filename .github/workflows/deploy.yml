@@ -11,7 +11,7 @@ env:
   ECR_SEOUL: 448768137813.dkr.ecr.ap-northeast-2.amazonaws.com
   ECR_OHIO: 448768137813.dkr.ecr.us-east-2.amazonaws.com
   # 오하이오 재활성화 시 "true" → 양 리전 push + 오하이오 rollout 자동 활성화
-  PUSH_OHIO: "true"
+  PUSH_OHIO: "false"
 
 jobs:
   deploy:
