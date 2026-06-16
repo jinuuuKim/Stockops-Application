@@ -88,20 +88,6 @@ jobs:
             docker push $reg/stockops-ai:${{ github.sha }}
           done
 
-      # ── EKS 롤링 재시작 ────────────────────────────────────────────────
-      - name: Rollout restart (Seoul)
-        run: |
-          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-          kubectl rollout restart deployment/stockops-api -n stockops
-          kubectl rollout restart deployment/stockops-ai -n stockops
-
-      - name: Rollout restart (Ohio)
-        if: ${{ env.PUSH_OHIO == 'true' }}
-        run: |
-          aws eks update-kubeconfig --region us-east-2 --name ohio-cluster
-          kubectl rollout restart deployment/stockops-api -n stockops
-          kubectl rollout restart deployment/stockops-ai -n stockops
-
       # ── CloudFront 캐시 무효화 ─────────────────────────────────────────
       - name: Invalidate CloudFront cache
         run: |
