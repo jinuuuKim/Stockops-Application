@@ -12,13 +12,13 @@ jobs:
       - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITOPS_TOKEN }}
+          token: ${{ secrets.SYNC_TOKEN }}
           submodules: recursive
           fetch-depth: 0
 
       - name: Sync forks from hansLee-it upstream
         env:
-          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           repos=(sensimul stockops-admin-web stockops-client-web stockops-api-server stockops-ai-module)
           for repo in "${repos[@]}"; do
