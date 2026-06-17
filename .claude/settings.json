@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(terraform *)",
+      "Bash(kubectl *)",
+      "Bash(aws *)",
+      "Bash(helm *)",
+      "Bash(docker *)",
+      "Bash(git *)",
+      "PowerShell(terraform *)",
+      "PowerShell(kubectl *)",
+      "PowerShell(aws *)",
+      "PowerShell(helm *)",
+      "PowerShell(docker *)",
+      "PowerShell(git *)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f *)"
+    ]
+  }
+}
